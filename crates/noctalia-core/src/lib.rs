@@ -5,3 +5,4 @@
 pub mod atomic_file;
 pub mod files;
 pub mod log;
+pub mod timing;

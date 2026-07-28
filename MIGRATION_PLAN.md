@@ -142,7 +142,7 @@ by design).
   (lives in core, config uses it). Done: test proves write-then-crash leaves either old
   or new content (tempdir + rename semantics), matching C++ behavior incl. permissions
   (see `tests/*permissions_test.cpp` patterns).
-- [ ] 1.4 Timers & deferred calls — src: `src/core/timer_manager.{cpp,h}`,
+- [x] 1.4 Timers & deferred calls — src: `src/core/timer_manager.{cpp,h}`,
   `src/core/deferred_call.{cpp,h}`, `src/core/frame_rate_limiter.h` → `core::timing` as
   calloop timer sources. Done: calloop-driven test fires ordered timers deterministically.
 - [ ] 1.5 Event-loop skeleton — new `core::event_loop`: calloop `EventLoop` wrapper +

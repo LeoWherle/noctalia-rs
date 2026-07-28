@@ -9,6 +9,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+calloop = "0.14.4"
 libc = "0.2.189"
 thiserror = "2.0.19"
 tracing = "0.1.44"

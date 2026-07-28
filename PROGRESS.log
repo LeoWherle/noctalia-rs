@@ -152,3 +152,54 @@ Done: 1.3. `noctalia-core::atomic_file` (crates/noctalia-core/src/atomic_file.rs
 Half-finished: nothing.
 Next step: task 1.4 (src/core/timer_manager.{cpp,h}, src/core/deferred_call.{cpp,h},
   src/core/frame_rate_limiter.h -> core::timing as calloop timer sources).
+
+## 2026-07-28 (session 6)
+Attempted: task 1.4 — timers & deferred calls.
+Done: 1.4. `noctalia-core::timing` (crates/noctalia-core/src/timing/{timer,
+  deferred,frame_rate_limiter}.rs), added `calloop` (0.14.4) as a dependency —
+  the architecture-decision-1 event loop, introduced now rather than waiting for
+  1.5's full skeleton.
+  Architectural departure from the C++ (recorded, not incidental): there is no
+  `TimerManager` singleton. C++ needed its own due-time map + pollTimeoutMs()/
+  tick() only because it had no real event-loop library; calloop's own
+  `calloop::timer::Timer` source already *is* that scheduler, so `timer::Timer
+  <Data>` wraps one calloop registration per instance directly against a
+  `LoopHandle<'static, Data>`, no global registry. Verified (not just assumed)
+  against calloop's vendored source: TimeoutAction::ToDuration(interval)
+  recomputes the deadline from Instant::now() *after* the callback returns,
+  reproducing the C++'s drift-permitting post-callback dueAt recompute exactly.
+  Self-cancellation (a repeating timer's callback calling stop() on itself,
+  which C++ handles via canceledTimerIds/inFlightTimerIds) is handled by a
+  shared Rc<Cell<bool>> `active` flag checked before and after the user
+  callback runs, plus calling LoopHandle::remove reentrantly — traced through
+  calloop's dispatch loop to confirm this doesn't panic (dispatcher is cloned
+  out of its slot before the callback runs) and doesn't leak (calloop's own
+  post-callback cleanup retries the unregister if calloop's inner per-source
+  borrow was still busy at the reentrant call site; the active flag is the
+  actual belt-and-suspenders regardless of that timing).
+  `deferred::DeferredCall<Data>` wraps `calloop::channel` (mpsc + ping, FIFO,
+  Send-able Sender cloneable across threads) instead of porting the hand-
+  rolled self-pipe; `wakeFd()`/`drainWakeFd()` have no port — the channel's
+  internal ping source already does that job.
+  `frame_rate_limiter::FrameRateLimiter<Data>` ports should_step()/reset()
+  line-for-line, using `Option<Instant>` (None = "never stepped") in place of
+  C++'s default-constructed time_point{} sentinel.
+  `Duration` can't be negative, so C++'s `std::max(delay, 0ms)` clamp has
+  nothing to do in Rust — dropped, not a behavior change (no path constructs a
+  negative Duration to begin with).
+  Every callback takes `&mut Data` (calloop's shared per-loop state) where the
+  C++ took none — the standard calloop idiom; every future 1.5+ consumer of
+  these types threads the same Data through.
+  Tests: 18 new (Timer: ordered one-shot firing, one-shot auto-deactivation,
+  stop-before-due, repeating firing, self-stopping-repeating-timer, restart-
+  replaces-prior-registration; FrameRateLimiter: first-step-always-runs,
+  throttle-then-revive, reset; DeferredCall: runs on dispatch, FIFO order
+  across multiple calls, cross-thread send via a real spawned+joined thread).
+  No C++ test exists for any of these three files to port from.
+  Pre-done review (rule 3): no blocking findings. One nitpick (the `stop()`
+  doc comment's explanation of why reentrant `handle.remove()` is safe was
+  imprecise/incomplete) — fixed to describe the actual mechanism (traced from
+  calloop's dispatch loop) rather than a partial guess.
+Half-finished: nothing.
+Next step: task 1.5 (new core::event_loop: calloop EventLoop wrapper + tokio
+  sidecar thread + channel bridge).
