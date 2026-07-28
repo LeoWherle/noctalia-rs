@@ -153,7 +153,7 @@ by design).
   functions across genuinely distinct concerns, vs. `tests/process_test.cpp` at 249
   lines): see 1.6.1-1.6.6 below, ordered core-first since later ones depend on the
   fork/exec/pipe machinery 1.6.1 builds.
-  - [ ] 1.6.1 Core sync process execution — `RunResult`/`RunOptions`/`RunCallbacks`
+  - [x] 1.6.1 Core sync process execution — `RunResult`/`RunOptions`/`RunCallbacks`
     types, `runSyncProcess` (fork/exec/pipe capture/poll loop/timeout/cancellation/
     output-byte-limit truncation — the hardest single piece: `terminateAndWait`'s
     process-group signaling, `pollTimeoutMs`'s deadline-clamped poll wait,

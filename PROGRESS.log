@@ -258,3 +258,66 @@ Done: plan-only edit. `src/core/process/process.cpp` is 968 lines across ~30
   user-manager integration, 1.6.6 process_fds. No code written yet.
 Half-finished: nothing (plan-split only, no code touched).
 Next step: task 1.6.1 (core sync process execution -> core::process).
+
+## 2026-07-28 (session 9)
+Attempted: task 1.6.1 — core sync process execution. Found the working tree
+  already carrying an uncommitted, apparently-complete implementation at
+  session start (a prior session was cut off before its rule-3 review/commit,
+  with no PROGRESS.log trace of having started); picked it up, reviewed it
+  fresh, fixed what the review found, and committed.
+Done: 1.6.1. `noctalia-core::process` (crates/noctalia-core/src/process/{mod,
+  core_exec}.rs), a port of `runSyncProcess` and its immediate dependents from
+  src/core/process/process.{cpp,h}: `RunResult`/`RunOptions`/`EnvOverride`,
+  `run_sync`/`run_sync_with_options` over `run_sync_process`'s fork(via
+  std::process::Command)/pipe-capture/poll loop, with `terminate_and_wait`'s
+  process-group SIGTERM-then-SIGKILL signaling, `poll_timeout_ms`'s
+  deadline-clamped wait (incl. the 250ms cancellable-poll cap), and
+  `drain_available`'s non-blocking read+truncate+callback. Two recorded
+  divergences (both in the module doc comment, not just code comments): (1)
+  `RunResult::out`/`err` are `Vec<u8>` not `String` — C++'s std::string is a
+  byte buffer with no UTF-8 requirement, `String` would force lossy conversion
+  or a fallible API the C++ doesn't have; (2) built on `Command` rather than
+  hand-rolled fork+execvp — deliberate (Option B), with the one behavioral
+  consequence recorded: a failed execvp inside the child is indistinguishable
+  from a failed fork here (both collapse to exit code -1), whereas the C++'s
+  hand-rolled execvp failure falls through to `_exit(127)`, observed by the
+  parent as a normal exit code.
+  Tests: ported `syncAppliesEnvOverrides` (exact env var names/shell string);
+  added timeout-triggers-terminate_and_wait and cancel-triggers-same-path
+  tests (no C++ equivalent — the C++ test suite only reaches this via the
+  async path, task 1.6.2); added an output-byte-limit test proving both
+  out_truncated and err_truncated independently while the streaming callbacks
+  still see the full untruncated bytes on both streams.
+  Pre-done review (rule 3, fresh subagent) found 3 blocking issues, all fixed
+  before committing:
+  - `wait_no_hang` treated a `try_wait()` `EINTR` as "process exited, exit
+    code -1" instead of retrying, diverging from the C++'s `waitNoHang` loop
+    (verified against the installed std source: `Child::try_wait` uses plain
+    `cvt`, not `cvt_r`, so EINTR is not retried internally) — would have
+    falsely reported exit, dropped live stdout/stderr pipes early, and leaked
+    a zombie. Fixed: loop and retry on `ErrorKind::Interrupted`, matching
+    `waitNoHang` exactly.
+  - The output-byte-limit test only exercised `out_truncated`; `err`
+    ("XYZ") was exactly at the byte limit and never actually truncated, so
+    `err_truncated`'s interaction with a live callback went unproven. Fixed:
+    both streams now exceed the limit and both truncation flags plus both
+    full-stream callback captures are asserted.
+  - The env-override test's SAFETY comment justified `set_var`/`remove_var`
+    as "single-threaded test" — false; `cargo test` runs this module's tests
+    concurrently with sibling tests that call `Command::spawn`. Verified
+    against the installed std source (library/std/src/sys/env/unix.rs,
+    library/std/src/sys/process/env.rs) that the actual safety property holds
+    for a different reason: `Command::spawn`'s environment capture goes
+    through `env::vars_os()`, which takes std's process-wide `ENV_LOCK.read()`
+    exactly like `set_var`/`remove_var` take `ENV_LOCK.write()` — reads and
+    writes are already mutually exclusive regardless of thread. Fixed the
+    comment to state that, not the false single-threaded claim.
+  Nitpicks noted but not required (recorded here, not actioned): `RunOptions`
+  could derive Debug/Clone like `RunResult` does, for test/caller ergonomics;
+  the cancel-poll 250ms-cap branch is dead code in both the Rust port and the
+  C++ original (poll_timeout_ms/pollTimeoutMs is always bounded to
+  [0,100]) — faithful 1:1 port of already-dead C++ logic, leave alone unless
+  the C++ is also cleaned up.
+Half-finished: nothing.
+Next step: task 1.6.2 (async execution — worker-thread runAsync wrapping
+  1.6.1's run_sync_process, plus shell-string composition via /bin/sh -lc).
