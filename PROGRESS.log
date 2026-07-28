@@ -559,3 +559,102 @@ Next step: task 1.6.5 (systemd user-manager integration —
   Port cgroupDetectsSystemdUserManager (pure string-matching); the
   end-to-end systemd-run path needs a live systemd --user + systemd-run —
   manual check logged in PROGRESS.log per the plan's own instruction).
+
+## 2026-07-29 (session 13)
+Attempted: task 1.6.5 — systemd user-manager integration.
+Done: 1.6.5. New `noctalia-core::process::systemd` (crates/noctalia-core/src/
+  process/systemd.rs), wired into `process::mod` alongside the existing
+  1.6.1-1.6.4 submodules: `cgroup_indicates_systemd_user_manager` (pure
+  `/user@{uid}.service/` substring match, ported verbatim including the v1/v2
+  cgroup-dump ambiguity the C++ comment notes), `running_under_systemd_user_
+  manager` (probes `/proc/self/cgroup` once via a `OnceLock<bool>` — a process
+  cannot migrate between the login session scope and the user manager, so
+  this matches the C++'s function-local `static const bool managed` cache;
+  `#[cfg(target_os = "linux")]`-gated with a `false`-returning stub
+  elsewhere, mirroring the C++'s `#ifdef __linux__`), `escape_systemd_unit_
+  name` (alnum/`:`/`_`/`.` pass through, everything else → `\xHH` lowercase
+  hex, byte-for-byte), `start_systemd_service` (builds the full `systemd-run
+  --user --slice=app.slice --property=ExitType=cgroup [--unit=...]
+  [--working-directory=...] [-E XDG_ACTIVATION_TOKEN -E DESKTOP_STARTUP_ID]
+  -E <every forwardable env var> -- <args>` argv in the same order as the
+  C++, launched via 1.6.2's `run_async_with_options` with `RunOptions.env`
+  carrying the activation-token overrides so systemd-run's own process
+  environment has something for its `-E VARNAME` imports to read), and
+  `run_async_as_systemd_service` (prefers the systemd-unit path when managed,
+  else falls back to 1.6.3's `launch_detached` — the double-fork detached
+  launch, matching the C++'s `runAsync(args, activationToken, workingDir)`
+  fallback, not the worker-thread `run_async` family, which is a different
+  function in the same C++ overload set).
+  One new, load-bearing-enough-to-record scoping decision (module doc
+  comment): `StringUtils::generateUuid` (`src/util/string_utils.h`) hasn't
+  been ported yet — that header is a separate, much larger future task, not
+  scoped to process spawning. Added a minimal private `generate_uuid_v4`
+  inside this module instead: same `/dev/urandom` source, same RFC 4122
+  version/variant bit-forcing, same lowercase `8-4-4-4-12` hex format, same
+  empty-string-on-I/O-failure behavior — to be deleted in favor of the
+  shared port once `string_utils.h` lands, not worth a new `uuid` crate
+  dependency (the C++ hand-rolls this itself with no C library backing it,
+  so there's no Phase-A FFI binding to match) or pulling in a whole unrelated
+  module for one anti-collision suffix on a systemd unit name.
+  Three more divergences recorded in the module doc comment, all minor/
+  non-load-bearing: (1) `start_systemd_service`'s "inherit our environment"
+  loop reproduces the C++'s own quirk exactly — `char c = **s` in the C++
+  dereferences the env entry's `char**` twice, inspecting only the FIRST byte
+  of each `NAME=VALUE` string before deciding to forward it via `-E NAME`,
+  not the whole name; `env_looks_forwardable` here does the same first-byte-
+  only check rather than a full identifier validation, verified by rereading
+  the C++ pointer arithmetic directly rather than trusting a paraphrase; (2)
+  that same loop reads env-entry names via `to_str()`, skipping non-UTF-8
+  names instead of forwarding raw bytes — unreachable in practice (real
+  environments are ASCII `NAME=VALUE` pairs); (3) `running_under_systemd_
+  user_manager` reads `/proc/self/cgroup` with `read_to_string` (requires
+  UTF-8) instead of the C++'s raw-byte `ifstream` read — also unreachable in
+  practice (`/proc/self/cgroup` is kernel-generated and always ASCII), added
+  after the pre-done review below flagged it as worth recording for
+  consistency with the other two.
+  Tests: ported the C++'s `cgroupDetectsSystemdUserManager` test (all five
+  cases, verbatim strings/expectations, from tests/process_test.cpp) plus new
+  unit tests for `escape_systemd_unit_name` (pass-through, escape, empty
+  input), `env_looks_forwardable` (confirms the first-byte-only quirk holds
+  even when a later character is invalid), the local UUID generator (RFC
+  4122 version/variant nibbles, non-collision across two calls), and a
+  smoke test that `running_under_systemd_user_manager` doesn't panic against
+  real `/proc` state. No C++ test exists for `escapeSystemdUnitName`/
+  `startSystemdService`/`runAsyncAsSystemdService` themselves (confirmed:
+  zero references beyond `cgroupDetectsSystemdUserManager` in
+  tests/process_test.cpp) — the task's own bar for the live path is a manual
+  check against a real `systemd --user`, done here: a scratch example
+  (`cargo run -p noctalia-core --example systemd_manual_check`, deleted after
+  use — not a permanent fixture) confirmed `running_under_systemd_user_
+  manager()` returns `true` on this host (a uwsm-managed niri/hyprland
+  session), and `run_async_as_systemd_service` launched a real transient unit
+  — caught mid-flight via `systemctl --user list-units 'app-noctalia*'`
+  showing `app-noctalia\x2dmanual\x2dcheck@<uuid>.service` loaded/active/
+  running (confirming both the `app-<escaped-name>@<uuid>.service` naming
+  and that `-` was correctly escaped to `\x2d`, since `-` isn't in the
+  allowed alnum/`:`/`_`/`.` set), with its stdout ("hello-from-systemd-unit")
+  landing in `journalctl --user` and the unit auto-cleaning up afterward
+  (ExitType=cgroup + transient-unit GC, both expected).
+  Pre-done review (rule 3, fresh subagent): independently re-derived the
+  C++'s `char c = **s` pointer arithmetic from process.cpp rather than
+  trusting the Rust doc comment (confirmed first-byte-only, as claimed);
+  independently confirmed the escape charset/format, the `uid: u32` vs C++
+  `unsigned int`/`uid_t` type match, that the fallback path calls the
+  double-fork `launch_detached` (not the worker-thread `run_async` family) by
+  tracing the C++'s own `runAsync(args, activationToken, workingDir)` →
+  `doubleForkExecDetached` call chain, the full systemd-run argv ordering
+  against the C++ line-by-line, and the `RunOptions.env` →
+  `apply_env_overrides` → `Command` chain that makes systemd-run's own
+  process see `XDG_ACTIVATION_TOKEN`/`DESKTOP_STARTUP_ID` for its `-E`
+  imports to read. Ran `just check` independently (clean) plus targeted
+  `cargo test`/`cargo clippy` on the new module. One nitpick, fixed before
+  committing: documented the `/proc/self/cgroup` UTF-8-vs-raw-bytes
+  divergence (recorded above). Verdict PASS.
+Half-finished: nothing.
+Next step: task 1.6.6 (process FD diagnostics — raiseOpenFileLimit,
+  describeOpenFileDescriptors, from src/core/process/process_fds.{cpp,h} →
+  a process::fds submodule; no C++ test exists, so unit tests for the
+  fd-target bucketing (socket:/pipe:/memfd:/long-path truncation) plus a
+  smoke test are the bar). This closes out task 1.6 (process spawning)
+  entirely — remember to flip 1.6's own top-level checkbox once 1.6.6 lands,
+  not just 1.6.6's.

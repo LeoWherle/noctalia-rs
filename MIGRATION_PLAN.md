@@ -182,7 +182,7 @@ by design).
     this test binary's own `/proc/self`; a temp flatpak data root for
     `flatpakAppInstalled`) — no direct C++ test exists for these, "round-trip tests for
     each helper" is the bar.
-  - [ ] 1.6.5 systemd user-manager integration — `cgroupIndicatesSystemdUserManager`,
+  - [x] 1.6.5 systemd user-manager integration — `cgroupIndicatesSystemdUserManager`,
     `runningUnderSystemdUserManager`, `escapeSystemdUnitName`, `startSystemdService`,
     `runAsyncAsSystemdService`. Done: port `cgroupDetectsSystemdUserManager` (pure
     string-matching, no live systemd needed); `runAsyncAsSystemdService`/

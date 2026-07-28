@@ -46,6 +46,7 @@ mod async_exec;
 mod core_exec;
 mod detached;
 mod matching;
+mod systemd;
 
 pub use async_exec::{
     RunCallbacks, run_async, run_async_shell, run_async_shell_with_options, run_async_with_options,
@@ -57,6 +58,10 @@ pub use detached::{
     launch_first_available, resolve_privilege_escalator, terminate_tracked,
 };
 pub use matching::{command_line_matches_all, desktop_portal_available, flatpak_app_installed};
+pub use systemd::{
+    cgroup_indicates_systemd_user_manager, escape_systemd_unit_name, run_async_as_systemd_service,
+    running_under_systemd_user_manager,
+};
 
 #[cfg(test)]
 pub(crate) mod test_support {
