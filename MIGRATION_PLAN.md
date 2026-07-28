@@ -136,7 +136,7 @@ by design).
 - [x] 1.1 Logging — src: `src/core/log.{cpp,h}` → `core::log` on `tracing` +
   `tracing-subscriber`. Preserve the C++ log format/env filtering. Done: unit test
   captures output and matches C++ format for the same events.
-- [ ] 1.2 File utilities — src: `src/core/files/*` → `core::files`. Done: port any
+- [x] 1.2 File utilities — src: `src/core/files/*` → `core::files`. Done: port any
   covering tests from `tests/`; round-trip tests for each helper.
 - [ ] 1.3 Atomic file writes — src: `src/config/atomic_file.{cpp,h}` → `core::atomic_file`
   (lives in core, config uses it). Done: test proves write-then-crash leaves either old

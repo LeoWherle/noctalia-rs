@@ -72,3 +72,47 @@ Done: 1.1. `noctalia-core::log` (crates/noctalia-core/src/log.rs): console sink
   openssl-sys -> nothing depends on it).
 Half-finished: nothing.
 Next step: task 1.2 (src/core/files/* -> core::files).
+
+## 2026-07-28 (session 4)
+Attempted: task 1.2 — file utilities.
+Done: 1.2. `noctalia-core::files` (crates/noctalia-core/src/files/{paths,
+  directory_scanner,file_watcher}.rs), a 1:1 port of src/core/files/*:
+  - `paths`: assets_root()/asset_path() — env override (NOCTALIA_ASSETS_DIR),
+    isAssetRoot's four-marker-file check, /proc/self/exe-derived candidates,
+    installed/source fallbacks, OnceLock-cached like the C++ function-local
+    static. INSTALL_PREFIX/INSTALL_DATADIR ("/usr"/"share") are documented
+    placeholders — meson injects the real values at compile time; the Rust build
+    has no install-layout story until the Phase 16.5 cutover. NOCTALIA_SOURCE_ASSETS_DIR
+    is real (injected by a new build.rs from CARGO_MANIFEST_DIR, mirroring meson's
+    `-DNOCTALIA_SOURCE_ASSETS_DIR`).
+  - `directory_scanner`: scan()/is_image_path()/image_extension_filter(), incl. the
+    exact tie-break chain (dirs always first; Size guarded to files-only, Modified
+    NOT guarded so two dirs compare by mtime; case-insensitive name; raw name;
+    abs_path as final tiebreak) and using fs::metadata (follows symlinks) rather
+    than DirEntry::file_type (does not) to match std::filesystem::is_directory's
+    symlink-following semantics; make_absolute mirrors std::filesystem::absolute
+    (cwd-join, no symlink resolution) rather than canonicalize.
+  - `file_watcher`: FileWatcher's raw inotify logic only (watch/unwatch/dispatch/
+    fd) — not FileWatchPollSource, which is pure PollSource glue with no
+    independent logic (verified in review) and belongs with calloop wiring
+    (task 1.5) instead. Directory watch-descriptor ref-counting/sharing, the
+    100ms per-watch debounce, and the raw inotify_event buffer parse (NUL-bounded
+    name within the len-sized, kernel-padded field) all ported behavior-for-
+    behavior.
+  Added crates/noctalia-core/build.rs (first build script in the workspace).
+  No new deps (libc already present from 1.1).
+  Tests: 18 new unit tests (paths: asset-root validation + a same-process
+    override integration test in tests/paths_test.rs, same OnceLock-caching
+    reasoning as log's globals; directory_scanner: hidden-file filtering,
+    extension filtering, sort semantics incl. the Size/Modified directory
+    asymmetry; file_watcher: real inotify on tmpfs for modify/write-completed/
+    unwatch/shared-directory-watch, since there's no reference C++ test to port
+    from — none exists in tests/ for src/core/files/*).
+  Pre-done review (rule 3) caught one real bug: dispatch()'s read buffer was a
+  plain `[u8; 4096]` (alignment 1) cast to `*const inotify_event` (needs align
+  4) — the C++ pins this down with `alignas(inotify_event) char buf[4096]`, lost
+  in the initial port. Fixed with a `#[repr(C, align(4))]` wrapper struct; also
+  added the review's suggested test for the Size/Modified directory-sort
+  asymmetry.
+Half-finished: nothing.
+Next step: task 1.3 (src/config/atomic_file.{cpp,h} -> core::atomic_file).
