@@ -240,3 +240,21 @@ Done: 1.5. `noctalia-core::event_loop` (crates/noctalia-core/src/event_loop.rs).
   a dependency; checked cargo tree -i openssl-sys -> nothing depends on it.
 Half-finished: nothing.
 Next step: task 1.6 (src/core/process/* -> core::process).
+
+## 2026-07-28 (session 8)
+Attempted: task 1.6 — process spawning. Split it before starting (CLAUDE.md/plan
+  protocol: session-sized tasks, split first if one balloons).
+Done: plan-only edit. `src/core/process/process.cpp` is 968 lines across ~30
+  public functions spanning genuinely distinct concerns (sync fork/exec/pipe/
+  poll/timeout/cancel machinery, worker-thread async wrapping it, double-fork
+  detached spawning, /proc scanning + caching for process matching, flatpak
+  detection, systemd user-manager detection + systemd-run service launching,
+  fd diagnostics in process_fds.cpp) against a 249-line C++ test file that only
+  exercises a slice of it. Replaced the single task 1.6 checkbox in
+  MIGRATION_PLAN.md with 1.6.1-1.6.6, ordered core-first (1.6.1's fork/exec/
+  pipe/poll/timeout machinery is what 1.6.2/1.6.3 build on): 1.6.1 core sync
+  exec, 1.6.2 async (worker-thread) exec, 1.6.3 detached spawning +
+  commandExists, 1.6.4 process listing/matching + flatpak, 1.6.5 systemd
+  user-manager integration, 1.6.6 process_fds. No code written yet.
+Half-finished: nothing (plan-split only, no code touched).
+Next step: task 1.6.1 (core sync process execution -> core::process).

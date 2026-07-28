@@ -148,8 +148,53 @@ by design).
 - [x] 1.5 Event-loop skeleton — new `core::event_loop`: calloop `EventLoop` wrapper +
   tokio sidecar thread + channel bridge (Architecture decision 1). Done: test sends a
   message from a tokio task to a calloop callback and back.
-- [ ] 1.6 Process spawning — src: `src/core/process/*` → `core::process`. Done: spawn/
-  reap/env tests ported.
+- [ ] 1.6 Process spawning — src: `src/core/process/*` → `core::process`. Split (session
+  hitting `src/core/process/process.cpp` at 968 lines + `process_fds.cpp`, ~30 public
+  functions across genuinely distinct concerns, vs. `tests/process_test.cpp` at 249
+  lines): see 1.6.1-1.6.6 below, ordered core-first since later ones depend on the
+  fork/exec/pipe machinery 1.6.1 builds.
+  - [ ] 1.6.1 Core sync process execution — `RunResult`/`RunOptions`/`RunCallbacks`
+    types, `runSyncProcess` (fork/exec/pipe capture/poll loop/timeout/cancellation/
+    output-byte-limit truncation — the hardest single piece: `terminateAndWait`'s
+    process-group signaling, `pollTimeoutMs`'s deadline-clamped poll wait,
+    `drainAvailable`'s non-blocking read+truncate+callback), `runSync(args[, options])`
+    overloads, env overrides (`applyEnvOverrides`/`EnvOverride`). Done: port
+    `syncAppliesEnvOverrides`; new tests for timeout-triggers-terminateAndWait and
+    output-byte-limit truncation (both flagged `outTruncated`/`errTruncated` and the
+    interaction with a live callback), since the C++ test only exercises these via the
+    async path (1.6.2).
+  - [ ] 1.6.2 Async execution — worker-thread `runAsync(args, callbacks, options)` /
+    `runAsync(command, callbacks, options)` wrapping 1.6.1's `runSyncProcess`, plus
+    `runAsync(command)`/`runSync(command)` shell-string composition via `/bin/sh -lc`.
+    Done: port `capturedAsyncDeliversCallbacksAndResult`,
+    `capturedAsyncDeliversCompletionOnly`, `stringCommandsSupportShellComposition`, the
+    empty-callback-set-should-not-launch case.
+  - [ ] 1.6.3 Detached spawning — `doubleForkExecDetached` (double-fork + setsid so the
+    grandchild isn't a direct child; activation-token/working-dir env for the
+    grandchild), `runAsync(args, activationToken, workingDir)`, `launchDetachedTracked`/
+    `terminateTracked`, `launchFirstAvailable`, `commandExists`/`resolvePrivilegeEscalator`
+    (PATH search). Done: port `detachedAsyncInheritsLaunchEnvironment`,
+    `commandExistsRejectsDirectories`.
+  - [ ] 1.6.4 Process listing & matching — `/proc` command-line scanning with the
+    250ms TTL cache (`cachedProcessCommandLines`/`readProcessCommandLines`),
+    `commandLineMatchesAll`, `desktopPortalAvailable`, `flatpakAppInstalled` (XDG data
+    root enumeration). Done: fixture-driven tests (spawn known marker processes or use
+    this test binary's own `/proc/self`; a temp flatpak data root for
+    `flatpakAppInstalled`) — no direct C++ test exists for these, "round-trip tests for
+    each helper" is the bar.
+  - [ ] 1.6.5 systemd user-manager integration — `cgroupIndicatesSystemdUserManager`,
+    `runningUnderSystemdUserManager`, `escapeSystemdUnitName`, `startSystemdService`,
+    `runAsyncAsSystemdService`. Done: port `cgroupDetectsSystemdUserManager` (pure
+    string-matching, no live systemd needed); `runAsyncAsSystemdService`/
+    `startSystemdService` end-to-end needs a live `systemd --user` + `systemd-run` —
+    manual check logged in PROGRESS.log, matching the pattern used elsewhere in this
+    plan for live-service-dependent behavior (e.g. task 6.3's `loginctl lock-session`).
+  - [ ] 1.6.6 Process FD diagnostics — src: `src/core/process/process_fds.{cpp,h}` →
+    `process::fds` (or a submodule of `core::process`): `raiseOpenFileLimit`,
+    `describeOpenFileDescriptors`. Done: no C++ test exists; unit tests for the
+    fd-target bucketing (`socket:`/`pipe:`/`memfd:`/long-path truncation) and a smoke
+    test that `raiseOpenFileLimit` doesn't lower the soft limit and
+    `describeOpenFileDescriptors` output is well-formed.
 - [ ] 1.7 Misc core — src: `src/core/random.h`, `scoped_timer.h`, `build_info.*`,
   `ui_phase.*`, `src/debug/*` → `core::{random,build_info,ui_phase}`. Done: compiles,
   trivial unit tests, `git_revision` generated via `build.rs` (no network).
