@@ -133,7 +133,7 @@ by design).
   green on the skeleton; committed.
 
 ### Phase 1 — Foundations (`crates/noctalia-core`)
-- [ ] 1.1 Logging — src: `src/core/log.{cpp,h}` → `core::log` on `tracing` +
+- [x] 1.1 Logging — src: `src/core/log.{cpp,h}` → `core::log` on `tracing` +
   `tracing-subscriber`. Preserve the C++ log format/env filtering. Done: unit test
   captures output and matches C++ format for the same events.
 - [ ] 1.2 File utilities — src: `src/core/files/*` → `core::files`. Done: port any

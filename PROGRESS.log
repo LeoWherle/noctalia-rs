@@ -39,3 +39,36 @@ Done: replaced the fixed "C lib -> crate" decision table in MIGRATION_PLAN.md wi
 Half-finished: nothing.
 Next step: WAIT for user confirmation of the revised MIGRATION_PLAN.md/CLAUDE.md
   diff. After go-ahead: task 1.1 (src/core/log.{cpp,h} -> noctalia-core::log).
+
+## 2026-07-28 (session 3)
+Attempted: task 1.1 — logging.
+Done: 1.1. `noctalia-core::log` (crates/noctalia-core/src/log.rs): console sink
+  (ANSI, time-only prefix, filtered by a global level) + file sink (plain, full-date
+  prefix, always written, 1 MiB rotation to `.log.1`, 8 KiB per-line cap with
+  UTF-8-safe truncation + short-suffix fallback, buffered flush: immediate on
+  warn/error, else every 64 lines or 500ms) — a 1:1 port of src/core/log.{cpp,h},
+  same constants, same format strings. `Logger` (per-section) + free
+  log_debug!/log_info!/log_warn!/log_error! macros bypass tracing's dispatch and
+  call the shared `log_message` sink directly: tracing's `target:` argument is
+  baked into a `static` calls-site (verified in tracing-0.1.44/src/macros.rs), so it
+  must be const-evaluable and can't carry a runtime `&'static str` section. A
+  separate `install_tracing_bridge()` (tracing_subscriber::Layer) forwards ordinary
+  `tracing::{debug,info,warn,error}!` calls from anywhere else in the process into
+  the same sink (target = section), which is what "on tracing" buys future
+  modules. `libc::localtime_r`/`libc::atexit` used for exact parity with the C++'s
+  localtime_r/atexit flush registration (both behind SAFETY comments). One bug
+  caught by the mandatory pre-done review (rule 3): the console write wasn't
+  covered by the same lock as the file write (C++'s single `scoped_lock` spans
+  both); fixed by widening the `FILE_STATE` mutex's scope over the whole
+  `log_message` body. Tests: unit tests in log.rs for format-string parity
+  (console/file prefix, ANSI codes, capping, UTF-8 boundary safety) +
+  crates/noctalia-core/tests/log_test.rs, a direct port of tests/log_test.cpp
+  (level parsing, env var filtering incl. case-sensitivity/invalid-value handling,
+  capped-line file test, rotation test) as one sequential #[test] (matches the
+  C++ test's single-threaded main() — this and the format tests are the only
+  things touching the shared globals/env vars, each in its own test binary
+  process, so no races), plus one added test proving the tracing bridge path.
+  Added deps: tracing, tracing-subscriber, libc (checked: cargo tree -i
+  openssl-sys -> nothing depends on it).
+Half-finished: nothing.
+Next step: task 1.2 (src/core/files/* -> core::files).
