@@ -138,7 +138,7 @@ by design).
   captures output and matches C++ format for the same events.
 - [x] 1.2 File utilities — src: `src/core/files/*` → `core::files`. Done: port any
   covering tests from `tests/`; round-trip tests for each helper.
-- [ ] 1.3 Atomic file writes — src: `src/config/atomic_file.{cpp,h}` → `core::atomic_file`
+- [x] 1.3 Atomic file writes — src: `src/config/atomic_file.{cpp,h}` → `core::atomic_file`
   (lives in core, config uses it). Done: test proves write-then-crash leaves either old
   or new content (tempdir + rename semantics), matching C++ behavior incl. permissions
   (see `tests/*permissions_test.cpp` patterns).

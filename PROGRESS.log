@@ -116,3 +116,39 @@ Done: 1.2. `noctalia-core::files` (crates/noctalia-core/src/files/{paths,
   asymmetry.
 Half-finished: nothing.
 Next step: task 1.3 (src/config/atomic_file.{cpp,h} -> core::atomic_file).
+
+## 2026-07-28 (session 5)
+Attempted: task 1.3 — atomic file writes.
+Done: 1.3. `noctalia-core::atomic_file` (crates/noctalia-core/src/atomic_file.rs), a
+  1:1 port of src/config/atomic_file.{cpp,h}: resolve_atomic_write_target (symlink_
+  metadata -> ENOENT means "not a symlink, write here" / any other stat error means
+  unresolvable; is-symlink -> canonicalize first, falling back to read_link + a
+  hand-rolled lexically_normal (no std equivalent) for broken symlinks) and
+  write_text_file_atomic (create parent dirs, write to a sibling `.tmp` via raw
+  OsString concatenation - not PathBuf::push, which would insert a path separator -
+  open with the exact requested mode or 0666 default, unconditional fchmod ONLY
+  when a mode was explicitly requested (bypassing umask, matching C++), explicit
+  close()-and-check via File::into_raw_fd + libc::close rather than relying on
+  File::Drop (which silently swallows close() errors), then rename, removing the
+  tmp file on any failure). Returns Result<(), AtomicFileError> (thiserror) instead
+  of C++'s bool, per architecture decision 4 (recorded divergence, not a spontaneous
+  improvement) — Io variant carries both path and the source io::Error.
+  Tests: 10 unit tests in atomic_file.rs (empty path, new file + parent creation, no
+  leftover .tmp after success, full content replacement, a simulated crash-before-
+  rename via a hand-seeded .tmp file proving the real path is untouched, exact mode
+  application, writes through both live and broken symlinks landing at the resolved
+  target, non-symlink passthrough) + crates/noctalia-core/tests/atomic_file_umask_
+  test.rs (umask is process-global state, so this is its own test binary, one
+  #[test] fn: explicit mode bypasses a restrictive umask via fchmod, default mode
+  does not). No C++ test exists for this file in tests/ to port from. Added
+  thiserror dep (architecture decision 4; checked cargo tree -i openssl-sys ->
+  nothing depends on it).
+  Pre-done review (rule 3): first attempt died mid-review to a session usage-limit
+  reset (not a code issue) — retried once and it completed clean. No blocking
+  findings on the second pass (verified write_all's EINTR/partial-write handling
+  against the actual Rust std source under rust-src, verified lexically_normal by
+  hand-tracing several `..`-collapsing cases against the cppreference algorithm,
+  verified the fd lifecycle has no double-close/use-after-free risk).
+Half-finished: nothing.
+Next step: task 1.4 (src/core/timer_manager.{cpp,h}, src/core/deferred_call.{cpp,h},
+  src/core/frame_rate_limiter.h -> core::timing as calloop timer sources).
