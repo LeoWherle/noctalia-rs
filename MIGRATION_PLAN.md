@@ -169,7 +169,7 @@ by design).
     Done: port `capturedAsyncDeliversCallbacksAndResult`,
     `capturedAsyncDeliversCompletionOnly`, `stringCommandsSupportShellComposition`, the
     empty-callback-set-should-not-launch case.
-  - [ ] 1.6.3 Detached spawning — `doubleForkExecDetached` (double-fork + setsid so the
+  - [x] 1.6.3 Detached spawning — `doubleForkExecDetached` (double-fork + setsid so the
     grandchild isn't a direct child; activation-token/working-dir env for the
     grandchild), `runAsync(args, activationToken, workingDir)`, `launchDetachedTracked`/
     `terminateTracked`, `launchFirstAvailable`, `commandExists`/`resolvePrivilegeEscalator`

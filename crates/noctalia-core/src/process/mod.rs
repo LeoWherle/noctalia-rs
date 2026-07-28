@@ -44,9 +44,32 @@
 
 mod async_exec;
 mod core_exec;
+mod detached;
 
 pub use async_exec::{
     RunCallbacks, run_async, run_async_shell, run_async_shell_with_options, run_async_with_options,
     run_sync_shell,
 };
 pub use core_exec::{EnvOverride, RunOptions, RunResult, run_sync, run_sync_with_options};
+pub use detached::{
+    command_exists, launch_detached, launch_detached_shell, launch_detached_tracked,
+    launch_first_available, resolve_privilege_escalator, terminate_tracked,
+};
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    use std::sync::Mutex;
+
+    /// Shared by every test under `process::*` that either mutates process
+    /// environment (`std::env::set_var`/`remove_var`) or triggers
+    /// `detached`'s raw `libc::fork()` (directly, or indirectly via
+    /// `launch_detached*`/`launch_first_available`). Held for the whole
+    /// risky window by both kinds of test so the two families can never run
+    /// concurrently within this test binary — see `detached`'s module doc
+    /// comment for why a raw `fork()` isn't covered by std's own `ENV_LOCK`
+    /// the way `std::process::Command::spawn` is (which is what makes
+    /// `core_exec`'s and `async_exec`'s own env-touching tests safe without
+    /// this lock, on their own — they only ever race against other
+    /// `Command::spawn` callers, never a raw `fork()`).
+    pub(crate) static ENV_MUTATION_LOCK: Mutex<()> = Mutex::new(());
+}

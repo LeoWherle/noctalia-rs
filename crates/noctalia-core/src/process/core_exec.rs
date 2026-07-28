@@ -486,12 +486,19 @@ mod tests {
     fn env_overrides_apply_to_child() {
         // SAFETY: cargo runs tests in this module concurrently, and sibling
         // tests do call `Command::spawn` on other threads while this one runs.
-        // That's not a data race: std's `Command::spawn` captures the
-        // environment via `env::vars_os()`, which (like `set_var`/`remove_var`)
-        // takes std's process-wide `ENV_LOCK` (verified in
-        // library/std/src/sys/env/unix.rs) before touching `environ` — reads
-        // and writes are mutually exclusive regardless of which thread issues
-        // them.
+        // That's not a data race against *those*: std's `Command::spawn`
+        // captures the environment via `env::vars_os()`, which (like
+        // `set_var`/`remove_var`) takes std's process-wide `ENV_LOCK`
+        // (verified in library/std/src/sys/env/unix.rs) before touching
+        // `environ` — reads and writes are mutually exclusive regardless of
+        // which thread issues them. It is *not* synchronized against
+        // `process::detached`'s raw `libc::fork()`, which bypasses `ENV_LOCK`
+        // entirely, so this test still takes the shared
+        // `test_support::ENV_MUTATION_LOCK` to rule that pairing out within
+        // this test binary (see `detached`'s module doc comment).
+        let _env_guard = crate::process::test_support::ENV_MUTATION_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         unsafe {
             std::env::set_var("NOCTALIA_PROCESS_UNSET_TEST", "parent");
         }

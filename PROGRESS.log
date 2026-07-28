@@ -383,3 +383,82 @@ Next step: task 1.6.3 (detached spawning — doubleForkExecDetached,
   runAsync(args, activationToken, workingDir), launchDetachedTracked/
   terminateTracked, launchFirstAvailable, commandExists/
   resolvePrivilegeEscalator).
+
+## 2026-07-29 (session 11)
+Attempted: task 1.6.3 — detached spawning.
+Done: 1.6.3. `noctalia-core::process::detached` (crates/noctalia-core/src/
+  process/detached.rs): a genuinely different execution strategy from 1.6.1/
+  1.6.2, which both build on `std::process::Command` — this one needs a real
+  double-fork + `setsid` (so the exec'd process reparents away from us
+  entirely, matching launcher app-activation semantics), which `Command`
+  can't do, so it's built directly on raw `libc::fork`/`setsid`/`execvp`.
+  Ported `doubleForkExecDetached` (report-pipe pid handoff, three-way fork
+  branch, intermediate `setsid`+second-fork+immediate-exit, grandchild
+  chdir/setenv(XDG_ACTIVATION_TOKEN,DESKTOP_STARTUP_ID)/attachStdioToDevNull/
+  execvp-or-_exit(127)), `writePipeOrIgnore`, `attachStdioToDevNull`, plus the
+  callback-less spawn family built on it: `launch_detached` (port of
+  `runAsync(args, activationToken, workingDir)`), `launch_detached_shell`
+  (port of plain `runAsync(command)`, /bin/sh -lc composition, no callbacks),
+  `launch_detached_tracked`/`terminate_tracked`, `launch_first_available`,
+  and PATH-search `command_exists`/`resolve_privilege_escalator`. Named
+  differently from 1.6.2's `run_async`/`run_async_shell` (which are the
+  *callback-carrying* worker-thread family) since both share the C++'s
+  `runAsync` name via overloading but are different engines under the hood —
+  documented in this module's doc comment.
+  `WIFEXITED`/`WEXITSTATUS` reimplemented via `std::process::ExitStatus::
+  from_raw(status).success()` rather than hand-rolling the glibc bit macros —
+  verified equivalent (exit-0 true, nonzero-exit false, signal-killed false)
+  with a small standalone test program, not just assumed.
+  Two hazards recorded in the module doc comment as inherited-from-C++, not
+  fixed here (matches "match C++ behavior over improving it"): forking a
+  multithreaded process is inherently fragile (only the calling thread
+  survives; a lock held by another thread at fork time can deadlock the
+  child before it execs) — the C++ has the same exposure; and neither
+  implementation takes any lock before `fork()`, which matters concretely for
+  this crate's own test binary specifically (see below).
+  Discovered and fixed a real cross-test hazard this task introduces: 1.6.1's
+  `env_overrides_apply_to_child` test relies on `std::process::Command::
+  spawn`'s internal `ENV_LOCK` (a std-internal RwLock) being synchronized
+  against `std::env::set_var`/`remove_var`, which is true for `Command::
+  spawn` but NOT for this module's raw `libc::fork()` — a `set_var` racing
+  this module's `fork()` on another thread could hand the child a torn
+  `environ`. Added `process::test_support::ENV_MUTATION_LOCK` (a shared
+  `Mutex<()>`) and audited every test in `detached.rs`/`core_exec.rs`/
+  `async_exec.rs` for whether it mutates env and/or reaches a real fork
+  (some `launch_detached_tracked`/`launch_first_available` calls return
+  early before ever forking and correctly need no lock); every test that
+  does either now holds the lock for its full risky window, including
+  retrofitting core_exec.rs's already-committed 1.6.1 test (justified: this
+  new task provably reopened a gap in already-committed code, not scope
+  creep).
+  Also discovered this NixOS host ships a genuine `run0` (systemd 256+),
+  which would make a naive "prepend a fake PATH dir" test for
+  `resolve_privilege_escalator`'s run0-vs-pkexec priority spuriously pass or
+  fail depending on what's really installed; fixed by fully replacing PATH
+  in those two tests rather than prepending, making them host-independent.
+  Tests: ported `detachedAsyncInheritsLaunchEnvironment` (env vars containing
+  a space, matching the C++'s exact path string) and
+  `commandExistsRejectsDirectories` verbatim; added new coverage with no C++
+  counterpart (same pattern as 1.6.1/1.6.2's added timeout/truncation
+  tests): launch_detached_tracked round-tripping through terminate_tracked
+  (a real spawned `sleep 5`, confirmed gone via a `kill(pid, 0)` liveness
+  probe), empty-args/non-positive-pid rejection for the tracked family,
+  launch_first_available picking the first existing command over a
+  nonexistent one, and resolve_privilege_escalator's priority order via
+  fake PATH executables.
+  Pre-done review (rule 3, fresh subagent): full line-by-line parity check
+  against doubleForkExecDetached, independently re-verified the ExitStatus::
+  success() claim, independently re-audited every test's lock discipline
+  (confirmed correct, including that restore_path runs before assertions so
+  a failing test still restores PATH), and independently re-derived the
+  real-run0-on-this-host reasoning. One nitpick, not actioned: exec_or_exit
+  builds argv CStrings post-fork (a small allocation in the async-signal-
+  unsafe window) where the C++'s makeArgv only collects pointers into
+  already-built std::string buffers; reviewer judged this non-blocking since
+  it's additive risk on a hazard class (execvp's own internal PATH-search
+  allocation in glibc) both implementations already accept equally, and
+  fixing it doesn't change observable behavior. Verdict PASS.
+Half-finished: nothing.
+Next step: task 1.6.4 (process listing & matching — cachedProcessCommandLines/
+  readProcessCommandLines with the 250ms TTL cache, commandLineMatchesAll,
+  desktopPortalAvailable, flatpakAppInstalled).
