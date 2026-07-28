@@ -163,7 +163,7 @@ by design).
     output-byte-limit truncation (both flagged `outTruncated`/`errTruncated` and the
     interaction with a live callback), since the C++ test only exercises these via the
     async path (1.6.2).
-  - [ ] 1.6.2 Async execution — worker-thread `runAsync(args, callbacks, options)` /
+  - [x] 1.6.2 Async execution — worker-thread `runAsync(args, callbacks, options)` /
     `runAsync(command, callbacks, options)` wrapping 1.6.1's `runSyncProcess`, plus
     `runAsync(command)`/`runSync(command)` shell-string composition via `/bin/sh -lc`.
     Done: port `capturedAsyncDeliversCallbacksAndResult`,

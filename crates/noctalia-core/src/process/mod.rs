@@ -1,12 +1,15 @@
 //! Port of `src/core/process/*` — task 1.6, split across 1.6.1-1.6.6 (see
 //! MIGRATION_PLAN.md) because the C++ source spans genuinely distinct concerns
-//! at ~30 public functions. This task (1.6.1) covers only the core synchronous
-//! exec machinery: `RunResult`/`RunOptions`/`EnvOverride` and `run_sync`/
+//! at ~30 public functions. So far this covers the core synchronous exec
+//! machinery (1.6.1): `RunResult`/`RunOptions`/`EnvOverride` and `run_sync`/
 //! `run_sync_with_options`, built on `runSyncProcess`'s fork/exec/pipe/poll loop
 //! (timeout, cancellation, output-byte-limit truncation, process-group
-//! signaling). Async execution (a worker thread wrapping this), detached
-//! double-fork spawning, `/proc` scanning, systemd integration, and fd
-//! diagnostics are separate subtasks layered on top of this module.
+//! signaling); and worker-thread async execution (1.6.2): `RunCallbacks` and
+//! the `run_async*`/`run_sync_shell` family in `async_exec`, wrapping
+//! `run_sync_process` from a spawned thread instead of adding new fork/exec
+//! machinery. Detached double-fork spawning, `/proc` scanning, systemd
+//! integration, and fd diagnostics are separate subtasks layered on top of
+//! this module.
 //!
 //! Two deliberate divergences from the C++, both load-bearing enough to record
 //! here rather than just in a code comment:
@@ -39,6 +42,11 @@
 //! expected Rust behavior, not something that needs to be defended against
 //! here.
 
+mod async_exec;
 mod core_exec;
 
+pub use async_exec::{
+    RunCallbacks, run_async, run_async_shell, run_async_shell_with_options, run_async_with_options,
+    run_sync_shell,
+};
 pub use core_exec::{EnvOverride, RunOptions, RunResult, run_sync, run_sync_with_options};
