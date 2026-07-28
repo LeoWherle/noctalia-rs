@@ -462,3 +462,100 @@ Half-finished: nothing.
 Next step: task 1.6.4 (process listing & matching — cachedProcessCommandLines/
   readProcessCommandLines with the 250ms TTL cache, commandLineMatchesAll,
   desktopPortalAvailable, flatpakAppInstalled).
+
+## 2026-07-29 (session 12)
+Attempted: task 1.6.4 — process listing & matching.
+Done: 1.6.4. `noctalia-core::process::matching` (crates/noctalia-core/src/
+  process/matching.rs): `/proc` command-line scanning
+  (`is_proc_pid_name`/`read_proc_cmdline`/`read_process_command_lines`) behind
+  a 250ms TTL cache (`cached_process_command_lines`, a single `static
+  Mutex<ProcessCommandLineCache>` in place of the C++'s two separate
+  function-local statics — same effect, one lock instead of two),
+  `cached_process_matches_any`, `command_line_matches_all`,
+  `desktop_portal_available` (two-stage: generic marker short-circuit, then
+  the five-backend list), and `flatpak_app_installed`/
+  `is_safe_flatpak_app_id`/`append_flatpak_data_roots` (XDG data-root
+  enumeration, same `XDG_DATA_HOME`-vs-`HOME` else-if priority,
+  `XDG_DATA_DIRS` fallback string, and unconditional trailing `/var/lib`).
+  Divergence (module doc comment, same reasoning as `RunResult::out`/`err`
+  from 1.6.1): cached command lines are `Vec<u8>` not `String` —
+  `/proc/<pid>/cmdline` is a raw NUL-separated byte buffer with no UTF-8
+  guarantee, and the C++ only ever substring-searches it as opaque bytes.
+  `contains_bytes` reimplements that byte-level search directly. One more,
+  minor, non-load-bearing divergence recorded: `read_process_command_lines`
+  skips just one bad `/proc` entry on an enumeration error rather than the
+  C++'s `break`-the-whole-scan, since Rust's `read_dir` doesn't carry
+  `skip_permission_denied` as a directory-iterator-level option the way
+  `std::filesystem::directory_iterator` does (not reachable in practice
+  against a real `/proc`; scanning more rather than less on the hypothetical
+  error path isn't a behavior regression).
+  No C++ test exists for any of this (verified: zero references to
+  flatpak/portal/cmdline/matches_all in tests/process_test.cpp) — the task's
+  own bar is round-trip tests against real spawned processes and a real temp
+  flatpak data root, which is what's here: command_line_matches_all finding
+  and then losing a real spawned marker process (a `/bin/sh -c "sleep 2 &
+  wait # <marker>"`, not a plain `sleep <marker>` — see below for why),
+  proving the TTL cache genuinely goes stale-then-fresh at the right
+  instants, requiring every needle on the SAME command line (not "any needle,
+  any line"), desktop_portal_available not panicking against real system
+  state, and flatpak_app_installed against a real temp `XDG_DATA_HOME`.
+  Found and fixed a real bug in a spawned-marker-process test helper: `/bin/sh
+  -c "sleep N # marker"` loses the marker, because when the last command in a
+  `-c` script is the only thing left to run, bash (which `/bin/sh` symlinks
+  to on this host) execs directly into it instead of forking — replacing the
+  shell's own argv (and the marker comment in it) with `sleep`'s. Backgrounding
+  the sleep and blocking on the builtin `wait` (`sleep N & wait # marker`)
+  keeps the shell process alive with its original, marker-carrying argv
+  intact for `/proc/<pid>/cmdline` to see. Verified this empirically (`od -c`
+  on both forms) before relying on it.
+  Found and fixed a real, reproducible flake in already-committed task-1.6.3
+  code while stress-testing the new tests (running the whole `process` test
+  suite repeatedly): `detached.rs`'s `resolve_privilege_escalator_prefers_
+  run0_over_pkexec`/`_falls_back_to_pkexec` tests were mutating the REAL
+  process-global `$PATH` (`std::env::set_var("PATH", fake_dir)`) to test
+  priority ordering. Since cargo runs this crate's unit tests multithreaded
+  in one process, ANY other test resolving a bare command name via `$PATH`
+  concurrently — including plain `Command::new("true")` calls in core_exec.rs
+  — could transiently observe the hijacked `PATH` and fail to find `true`/
+  `false`/etc. Reproduced this at roughly 1-in-10 to 1-in-20 over dozens of
+  `cargo test -p noctalia-core process` runs, hitting `core_exec::
+  runs_true_and_reports_success`/`runs_false_and_reports_failure` (spawn
+  returning -1) and `detached::command_exists_rejects_directories`
+  (`command_exists("true")` returning false) — all pre-existing, previously
+  reviewed tests, none of them logic bugs. Root-caused it (not just papered
+  over with more locking): extracted the PATH-search core of `command_exists`/
+  `resolve_privilege_escalator` into pure, parameterized helpers
+  (`command_exists_on_path`/`resolve_privilege_escalator_on_path`, taking
+  `path_bytes: &[u8]` directly) that the public functions delegate to after
+  reading the real `$PATH` once; rewrote the two escalator tests to call the
+  `_on_path` helpers with a locally constructed byte string instead of ever
+  touching `std::env::set_var`/`remove_var`, removing their `ENV_MUTATION_LOCK`
+  acquisition entirely since they no longer touch any shared global state.
+  Verified via 40+ consecutive clean `cargo test -p noctalia-core process`
+  runs after the fix (zero failures), versus the reproducible ~1-in-10 rate
+  before it.
+  Pre-done review (rule 3, fresh subagent): independently diffed detached.rs
+  against its pre-session committed version to confirm the PATH-search
+  extraction changed no production behavior; independently re-ran the flake
+  sweep (20 clean runs); independently audited every remaining `set_var`/
+  `remove_var` in the crate for the same bug class (none found — all
+  correctly guarded by `test_support::ENV_MUTATION_LOCK` for the *different*,
+  already-reviewed raw-fork-vs-ENV_LOCK concern); verified the cache/matching
+  logic line-by-line against the C++; independently reproduced the bash
+  tail-call-exec claim via `od -c`. Three nitpicks, all fixed before
+  committing: added a test isolating `command_line_matches_all`'s "all
+  needles on the same line" semantics from "any needle, any line" (a spawned
+  two-token marker process, checked against a matching pair and a
+  present/absent pair); added a standalone `contains("..")` case to
+  `is_safe_flatpak_app_id`'s test (previous case only combined `..` with a
+  `/`, already caught by the separator check); documented the
+  `read_process_command_lines` break-vs-skip divergence in the module doc
+  comment (rule 6: divergences must be recorded, even minor/unreachable
+  ones). Verdict PASS.
+Half-finished: nothing.
+Next step: task 1.6.5 (systemd user-manager integration —
+  cgroupIndicatesSystemdUserManager, runningUnderSystemdUserManager,
+  escapeSystemdUnitName, startSystemdService, runAsyncAsSystemdService).
+  Port cgroupDetectsSystemdUserManager (pure string-matching); the
+  end-to-end systemd-run path needs a live systemd --user + systemd-run —
+  manual check logged in PROGRESS.log per the plan's own instruction).

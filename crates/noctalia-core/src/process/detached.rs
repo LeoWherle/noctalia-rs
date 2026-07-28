@@ -26,20 +26,27 @@
 //! - Neither implementation takes any lock before calling `fork()`. On this
 //!   crate's own test binary specifically, that matters for one concrete
 //!   pairing: Rust's `std::env::set_var`/`remove_var` (used by this module's
-//!   own `detached_async_inherits_launch_environment` test and by
-//!   `core_exec`'s `env_overrides_apply_to_child`) go through std's internal
-//!   `ENV_LOCK`, but a raw `libc::fork()` here does not — unlike
-//!   `std::process::Command::spawn`, which takes `ENV_LOCK`'s read side
-//!   before forking (see `core_exec`'s doc comment on that). A `set_var`
-//!   write racing with this module's raw `fork()` on another thread could
-//!   observe (or leave the child with) a torn `environ` array. Both of this
-//!   crate's env-mutating tests take a shared `test_support::ENV_MUTATION_LOCK`
-//!   for their duration to rule that out within our own test binary; nothing
-//!   about production code changes.
+//!   own `detached_async_inherits_launch_environment` test, and by other
+//!   tests elsewhere in `process::*` — see `test_support::ENV_MUTATION_LOCK`)
+//!   go through std's internal `ENV_LOCK`, but a raw `libc::fork()` here does
+//!   not — unlike `std::process::Command::spawn`, which takes `ENV_LOCK`'s
+//!   read side before forking (see `core_exec`'s doc comment on that). A
+//!   `set_var` write racing with this module's raw `fork()` on another
+//!   thread could observe (or leave the child with) a torn `environ` array.
+//!   Every env-mutating test in this crate takes the shared
+//!   `test_support::ENV_MUTATION_LOCK` for its duration to rule that out
+//!   within our own test binary; nothing about production code changes.
+//!   (`resolve_privilege_escalator`'s own tests don't need it: they exercise
+//!   the PATH-search logic through `*_on_path` helpers parameterized on a
+//!   constructed byte string rather than mutating the real, process-global
+//!   `$PATH` — see `command_exists_on_path`'s doc comment for why that split
+//!   exists.)
 
 use std::ffi::CString;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
+
+const DEFAULT_PATH: &[u8] = b"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 
 /// Port of `commandExists`: absolute/relative paths (containing `/`) are
 /// checked directly; bare names are searched over `$PATH` (or the same
@@ -57,9 +64,26 @@ pub fn command_exists(name: &str) -> bool {
     let path_env = std::env::var_os("PATH");
     let path_bytes: &[u8] = match &path_env {
         Some(p) if !p.is_empty() => p.as_bytes(),
-        _ => b"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        _ => DEFAULT_PATH,
     };
+    command_exists_on_path(name, path_bytes)
+}
 
+/// The PATH-search core of [`command_exists`], parameterized on the raw
+/// `$PATH` bytes rather than reading the real process environment. Pulled
+/// out so tests can exercise the search logic (and, transitively,
+/// [`resolve_privilege_escalator`]'s priority order) against a constructed
+/// PATH without mutating the real, process-global `$PATH` — which earlier
+/// versions of those tests did via `std::env::set_var`, and which turned out
+/// to be a genuine, reproducible race: `$PATH` is read by every other
+/// PATH-searching test in this crate (including plain `Command::spawn("true")`
+/// calls in sibling test files, which also resolve bare names via `$PATH`
+/// internally), so temporarily replacing the real `$PATH` mid-test-run could
+/// (and, empirically, intermittently did) make an unrelated, concurrently
+/// running test fail to find `true`/`false`/etc. Nothing about production
+/// `command_exists`/`resolve_privilege_escalator` changes; this only moves
+/// what's fed the search.
+fn command_exists_on_path(name: &str, path_bytes: &[u8]) -> bool {
     let mut start = 0usize;
     loop {
         if start > path_bytes.len() {
@@ -109,10 +133,22 @@ fn is_executable_regular_file(path: &Path) -> bool {
 /// Port of `resolvePrivilegeEscalator`: prefer `run0` over `pkexec`, since
 /// `pkexec` often stays on `PATH` without its setuid wrapper (e.g. on NixOS).
 pub fn resolve_privilege_escalator() -> Option<String> {
-    if command_exists("run0") {
+    let path_env = std::env::var_os("PATH");
+    let path_bytes: &[u8] = match &path_env {
+        Some(p) if !p.is_empty() => p.as_bytes(),
+        _ => DEFAULT_PATH,
+    };
+    resolve_privilege_escalator_on_path(path_bytes)
+}
+
+/// The priority-order core of [`resolve_privilege_escalator`]; see
+/// [`command_exists_on_path`] for why this is parameterized on raw `$PATH`
+/// bytes instead of reading the real environment.
+fn resolve_privilege_escalator_on_path(path_bytes: &[u8]) -> Option<String> {
+    if command_exists_on_path("run0", path_bytes) {
         return Some("run0".to_string());
     }
-    if command_exists("pkexec") {
+    if command_exists_on_path("pkexec", path_bytes) {
         return Some("pkexec".to_string());
     }
     None
@@ -590,21 +626,19 @@ mod tests {
 
     #[test]
     fn resolve_privilege_escalator_prefers_run0_over_pkexec() {
-        let _env_guard = crate::process::test_support::ENV_MUTATION_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // Deliberately does NOT touch the real process-global `PATH` (earlier
+        // versions of this test did via `std::env::set_var`, and that was a
+        // genuine, reproducible race: this host's real `PATH` is read by
+        // every other PATH-searching test in this crate concurrently, so
+        // temporarily replacing it broke unrelated tests resolving `true`/
+        // `false`/etc. mid-run). `resolve_privilege_escalator_on_path` takes
+        // the PATH bytes directly instead, so this only ever touches a
+        // locally constructed byte string.
         let dir = tempfile_dir("noctalia_escalator_test");
         write_fake_executable(&dir, "run0");
         write_fake_executable(&dir, "pkexec");
 
-        // Replace PATH entirely rather than prepending: this host's real
-        // PATH already has a genuine `run0` (systemd 256+, shipped on this
-        // NixOS), which would make the fallback test below pass for the
-        // wrong reason (finding the real `run0`) if the real PATH stayed
-        // reachable.
-        let restored = replace_path(&dir);
-        let result = resolve_privilege_escalator();
-        restore_path(restored);
+        let result = resolve_privilege_escalator_on_path(dir.as_os_str().as_bytes());
         let _ = std::fs::remove_dir_all(&dir);
 
         assert_eq!(result.as_deref(), Some("run0"));
@@ -612,18 +646,11 @@ mod tests {
 
     #[test]
     fn resolve_privilege_escalator_falls_back_to_pkexec() {
-        let _env_guard = crate::process::test_support::ENV_MUTATION_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // See the comment in the test above: no real-`PATH` mutation here either.
         let dir = tempfile_dir("noctalia_escalator_fallback_test");
         write_fake_executable(&dir, "pkexec");
 
-        // See the comment in the test above: must not leave the real PATH
-        // (and its real `run0`) reachable, or this would spuriously resolve
-        // to the real `run0` instead of exercising the pkexec fallback.
-        let restored = replace_path(&dir);
-        let result = resolve_privilege_escalator();
-        restore_path(restored);
+        let result = resolve_privilege_escalator_on_path(dir.as_os_str().as_bytes());
         let _ = std::fs::remove_dir_all(&dir);
 
         assert_eq!(result.as_deref(), Some("pkexec"));
@@ -642,28 +669,6 @@ mod tests {
         std::fs::write(&path, "#!/bin/sh\nexit 0\n").expect("failed to write fake executable");
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
             .expect("failed to chmod fake executable");
-    }
-
-    /// Mutates process-global `PATH`; callers must hold `ENV_MUTATION_LOCK`
-    /// for the duration (both call sites do).
-    fn replace_path(dir: &Path) -> Option<std::ffi::OsString> {
-        let original = std::env::var_os("PATH");
-        // SAFETY: guarded by ENV_MUTATION_LOCK in the calling test.
-        unsafe {
-            std::env::set_var("PATH", dir.as_os_str());
-        }
-        original
-    }
-
-    /// Same locking requirement as [`replace_path`].
-    fn restore_path(original: Option<std::ffi::OsString>) {
-        // SAFETY: as above.
-        unsafe {
-            match original {
-                Some(value) => std::env::set_var("PATH", value),
-                None => std::env::remove_var("PATH"),
-            }
-        }
     }
 
     fn shell_quote(value: &str) -> String {

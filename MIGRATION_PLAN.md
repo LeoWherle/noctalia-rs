@@ -175,7 +175,7 @@ by design).
     `terminateTracked`, `launchFirstAvailable`, `commandExists`/`resolvePrivilegeEscalator`
     (PATH search). Done: port `detachedAsyncInheritsLaunchEnvironment`,
     `commandExistsRejectsDirectories`.
-  - [ ] 1.6.4 Process listing & matching — `/proc` command-line scanning with the
+  - [x] 1.6.4 Process listing & matching — `/proc` command-line scanning with the
     250ms TTL cache (`cachedProcessCommandLines`/`readProcessCommandLines`),
     `commandLineMatchesAll`, `desktopPortalAvailable`, `flatpakAppInstalled` (XDG data
     root enumeration). Done: fixture-driven tests (spawn known marker processes or use

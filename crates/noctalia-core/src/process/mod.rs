@@ -45,6 +45,7 @@
 mod async_exec;
 mod core_exec;
 mod detached;
+mod matching;
 
 pub use async_exec::{
     RunCallbacks, run_async, run_async_shell, run_async_shell_with_options, run_async_with_options,
@@ -55,6 +56,7 @@ pub use detached::{
     command_exists, launch_detached, launch_detached_shell, launch_detached_tracked,
     launch_first_available, resolve_privilege_escalator, terminate_tracked,
 };
+pub use matching::{command_line_matches_all, desktop_portal_available, flatpak_app_installed};
 
 #[cfg(test)]
 pub(crate) mod test_support {
