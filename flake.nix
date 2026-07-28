@@ -3,10 +3,18 @@
 
   inputs = {
     nixpkgs.url = "https://channels.nixos.org/nixos-unstable/nixexprs.tar.xz";
+    # Pins the Rust toolchain for the migration dev shell (see nix/rust-devshell.nix).
+    # rust-overlay over fenix: the toolchain pin lives in flake.lock alongside nixpkgs,
+    # it needs no extra binary cache, and its stable-channel attrset maps directly to
+    # upstream releases.
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
-    { self, nixpkgs }:
+    { self, nixpkgs, rust-overlay }:
     let
       inherit (nixpkgs.lib) genAttrs getExe;
 
@@ -43,6 +51,11 @@
         {
           default = pkgs.callPackage ./nix/devshell.nix {
             noctalia = self.packages.${system}.default;
+          };
+          # Rust migration shell — `nix develop .#rust` (auto-loaded by .envrc).
+          rust = import ./nix/rust-devshell.nix {
+            inherit pkgs;
+            rust-bin = rust-overlay.lib.mkRustBin { } pkgs;
           };
         }
       );

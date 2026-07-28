@@ -1,0 +1,9 @@
+[package]
+name = "noctalia-compositors"
+description = "Compositor backends: detection, Hyprland/niri/sway/dwl/labwc/mango/kde/triad IPC, ext-workspace."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

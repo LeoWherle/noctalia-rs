@@ -1,0 +1,25 @@
+# PROGRESS.log — append-only session journal for the Rust migration.
+# One dated entry per session, newest at the BOTTOM. Never edit old entries.
+# Template:
+#   ## YYYY-MM-DD (session N)
+#   Attempted: ...
+#   Done: ... (task IDs from MIGRATION_PLAN.md)
+#   Half-finished: ... (exact state, what compiles, what's stubbed)
+#   Next step: ... (concrete enough to start cold)
+
+## 2026-07-28 (session 1)
+Attempted: Phase 0 — migration infrastructure, no logic ported.
+Done: task 0.1 — MIGRATION_PLAN.md (17 phases, crate decisions, sandbox red flags,
+  architecture decisions: calloop main loop + tokio sidecar, wayland client_system
+  backend for EGL, pangocairo FFI for text). CLAUDE.md (quality bar + standing rules).
+  This file. flake.nix gained rust-overlay input + devShells.rust
+  (nix/rust-devshell.nix: pinned toolchain, bindgenHook, all C libs for FFI). .envrc
+  (`use flake .#rust`). justfile gained `check` (fmt + clippy -D warnings + test).
+  Cargo workspace skeleton: 13 empty crates under crates/ matching the phase layers
+  (core, config, theme, ipc, system, dbus, net, calendar, audio, compositors, wayland,
+  render, ui) + noctalia-shell bin + noctalia-qalc-sys placeholder. Workspace lints
+  deny unwrap_used/expect_used.
+Half-finished: nothing.
+Next step: WAIT for user go-ahead on MIGRATION_PLAN.md (explicitly requested — do not
+  start Phase 1 without it). After go-ahead: task 1.1 (port src/core/log.{cpp,h} to
+  noctalia-core::log on tracing).

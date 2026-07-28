@@ -18,8 +18,10 @@ __pycache__
 .DS_Store
 Thumbs.db
 
-# Nix
-.envrc
+# Rust
+target/
+
+# Nix (.envrc is deliberately committed: it selects the .#rust migration shell)
 .direnv/
 result/
 result

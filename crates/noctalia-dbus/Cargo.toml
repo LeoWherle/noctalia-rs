@@ -1,0 +1,9 @@
+[package]
+name = "noctalia-dbus"
+description = "zbus services: upower, logind, mpris, NetworkManager, BlueZ, notification daemon, StatusNotifier tray, polkit agent protocol."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

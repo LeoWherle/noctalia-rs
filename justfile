@@ -8,6 +8,14 @@ cpp-std := "c++23"
 default:
     @just --list
 
+# ── Rust migration (see MIGRATION_PLAN.md / CLAUDE.md) ────────────────────────
+
+# The one canonical definition of "done" for Rust work.
+check:
+    cargo fmt --all --check
+    cargo clippy --workspace --all-targets -- -D warnings
+    cargo test --workspace
+
 configure m=mode install_prefix=prefix:
     #!/usr/bin/env bash
     set -euo pipefail

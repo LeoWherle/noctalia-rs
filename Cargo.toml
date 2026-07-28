@@ -1,0 +1,21 @@
+# Workspace for the C++ → Rust migration. See MIGRATION_PLAN.md for what goes
+# where; crates are empty shells until their phase begins.
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/noctalia-dev/noctalia"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+# CLAUDE.md quality bar: no bare unwrap/expect in non-test code. Scoped
+# #[allow] with a justifying comment where a panic is provably impossible;
+# test modules may blanket-allow.
+unwrap_used = "deny"
+expect_used = "deny"

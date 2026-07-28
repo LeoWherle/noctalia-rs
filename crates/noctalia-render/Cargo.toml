@@ -1,0 +1,9 @@
+[package]
+name = "noctalia-render"
+description = "Renderer: EGL bootstrap, GLES via glow, shader programs, render targets/damage, scene graph, animation, pangocairo text."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

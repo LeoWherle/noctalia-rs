@@ -1,0 +1,9 @@
+[package]
+name = "noctalia-ipc"
+description = "Unix-socket IPC protocol and server."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

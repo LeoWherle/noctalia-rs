@@ -1,0 +1,9 @@
+[package]
+name = "noctalia-config"
+description = "Config data model, schema, validation, merge, migrations, state store, config service."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,9 @@
+[package]
+name = "noctalia-theme"
+description = "Color/palette/M3 scheme engine, template engine, theme image loading, app-theme outputs."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

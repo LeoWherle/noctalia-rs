@@ -1,0 +1,9 @@
+[package]
+name = "noctalia-system"
+description = "System monitors: CPU/mem/disk/net stats, brightness, battery logic, desktop entries."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

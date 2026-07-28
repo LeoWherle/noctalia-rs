@@ -1,0 +1,9 @@
+[package]
+name = "noctalia-net"
+description = "HTTP layer (reqwest/rustls) shared by calendar and update checks."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
