@@ -145,7 +145,7 @@ by design).
 - [x] 1.4 Timers & deferred calls — src: `src/core/timer_manager.{cpp,h}`,
   `src/core/deferred_call.{cpp,h}`, `src/core/frame_rate_limiter.h` → `core::timing` as
   calloop timer sources. Done: calloop-driven test fires ordered timers deterministically.
-- [ ] 1.5 Event-loop skeleton — new `core::event_loop`: calloop `EventLoop` wrapper +
+- [x] 1.5 Event-loop skeleton — new `core::event_loop`: calloop `EventLoop` wrapper +
   tokio sidecar thread + channel bridge (Architecture decision 1). Done: test sends a
   message from a tokio task to a calloop callback and back.
 - [ ] 1.6 Process spawning — src: `src/core/process/*` → `core::process`. Done: spawn/

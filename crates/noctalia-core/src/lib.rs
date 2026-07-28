@@ -3,6 +3,7 @@
 //! Skeleton crate — contents arrive with its migration phase; see MIGRATION_PLAN.md.
 
 pub mod atomic_file;
+pub mod event_loop;
 pub mod files;
 pub mod log;
 pub mod timing;

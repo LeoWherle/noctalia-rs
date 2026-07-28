@@ -10,7 +10,7 @@
 use calloop::LoopHandle;
 use calloop::channel::{self, Event};
 
-type Job<Data> = Box<dyn FnOnce(&mut Data) + Send>;
+pub(crate) type Job<Data> = Box<dyn FnOnce(&mut Data) + Send>;
 
 /// A queue of closures to run on the loop thread, safe to schedule work onto
 /// from any thread. Clone [`DeferredCall::sender`]'s `Sender` and hand it to

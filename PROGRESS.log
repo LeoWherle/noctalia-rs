@@ -203,3 +203,40 @@ Done: 1.4. `noctalia-core::timing` (crates/noctalia-core/src/timing/{timer,
 Half-finished: nothing.
 Next step: task 1.5 (new core::event_loop: calloop EventLoop wrapper + tokio
   sidecar thread + channel bridge).
+
+## 2026-07-28 (session 7)
+Attempted: task 1.5 — event-loop skeleton.
+Done: 1.5. `noctalia-core::event_loop` (crates/noctalia-core/src/event_loop.rs).
+  No C++ source for this — the C++ has its own hand-rolled poll-based MainLoop
+  instead; this is new infrastructure implementing architecture decision 1.
+  `EventLoop<Data>` wraps a `calloop::EventLoop<'static, Data>` plus a
+  `TokioSidecar`: one dedicated OS thread running a *current-thread* tokio
+  runtime (not the multi-worker scheduler — a desktop shell shouldn't spin up
+  extra OS threads by default), parked for its whole life in
+  `runtime.block_on(shutdown_rx.await)`. `spawn_on_tokio(future, on_complete)`
+  spawns `future` via `Handle::spawn` (callable from any thread, including the
+  main one) and reuses task 1.4's `timing::DeferredCall<Data>` as the tokio-to-
+  calloop bridge (send a boxed closure through DeferredCall's channel; it runs
+  `on_complete` on the main loop thread next dispatch) — no new channel type
+  needed, DeferredCall already is "any thread can post a closure that runs on
+  the main loop." Made `timing::deferred::Job<Data>` `pub(crate)` (was private)
+  so event_loop.rs can name the alias.
+  Pre-done review (rule 3) verified the crux design claim against tokio
+  1.53.1's actual scheduler source (not just the code comment): a task spawned
+  cross-thread via Handle::spawn onto a current-thread runtime reliably wakes
+  a thread parked in block_on via the injection-queue + unpark path
+  (scheduler/current_thread/mod.rs's Schedule::schedule and Wake::wake_by_ref),
+  independent of whether the parked future itself ever completes. Also traced
+  the shutdown/error paths (oneshot Sender-dropped-vs-sent, Builder::build()
+  failure inside the sidecar thread) for hang/leak risk — none found. One
+  nitpick: the `macros` tokio feature was enabled but unused (no tokio::test/
+  select!/etc. anywhere) — dropped, confirmed tokio-macros no longer appears in
+  the dependency tree.
+  Tests: round_trips_a_message_through_the_tokio_sidecar_and_back (a real
+  tokio::time::sleep task, bounded polling via repeated dispatch(), the literal
+  Done criterion), main_thread_can_defer_work_onto_itself (defer() wrapper),
+  tokio_handle_can_be_used_to_spawn_from_outside_spawn_on_tokio (the raw
+  tokio_handle() accessor path). Added tokio (rt, sync, time features only) as
+  a dependency; checked cargo tree -i openssl-sys -> nothing depends on it.
+Half-finished: nothing.
+Next step: task 1.6 (src/core/process/* -> core::process).
