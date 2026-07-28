@@ -23,3 +23,19 @@ Half-finished: nothing.
 Next step: WAIT for user go-ahead on MIGRATION_PLAN.md (explicitly requested — do not
   start Phase 1 without it). After go-ahead: task 1.1 (port src/core/log.{cpp,h} to
   noctalia-core::log on tracing).
+
+## 2026-07-28 (session 2)
+Attempted: audit-and-replan pass on dependency strategy (user directive). No porting.
+Done: replaced the fixed "C lib -> crate" decision table in MIGRATION_PLAN.md with a
+  two-phase strategy: Phase A = FFI to the same C libs Noctalia uses (parity
+  baseline; C++-only deps with no C ABI -> toml/serde_json/zbus; vendored
+  third_party C compiled via cc), Phase B = measured pure-Rust swaps, tagged
+  [future-candidate], gated on full-shell cutover + profiling (new Phase 17, tasks
+  B.1-B.14, incl. allocator and GLES-binding decisions — both provisional until
+  then). Retagged affected tasks (3.4, 5.5, 7.1-7.6, 8.3, 11.2, 12.4, 14.1).
+  CLAUDE.md: standing rule 6 (FFI-first, never swap deps "while you're in there")
+  + quality-bar dep bullet rewritten. nix/rust-devshell.nix: added curl + md4c
+  (now Phase A FFI targets), comments updated; shell re-evaluates OK.
+Half-finished: nothing.
+Next step: WAIT for user confirmation of the revised MIGRATION_PLAN.md/CLAUDE.md
+  diff. After go-ahead: task 1.1 (src/core/log.{cpp,h} -> noctalia-core::log).

@@ -22,6 +22,15 @@ The plugin system (`src/scripting/`) is **out of migration scope**.
 4. Work happens on the `rust-migration` branch. If a session finds itself on `main`,
    check out `rust-migration` first.
 5. Never `git push --force`, never rewrite published history, never commit secrets.
+6. **Dependency choices follow the two-phase strategy** (MIGRATION_PLAN.md,
+   "Dependency strategy"). Phase A ports FFI-first against the same C libraries the
+   C++ already uses — parity beats purity, a working baseline beats the "best"
+   crate. Pure-Rust swaps are Phase B only: tracked as `[future-candidate]` tasks,
+   gated on a fully working shell plus real profiling data, and decided by the
+   recorded research process (read the actual C API calls used, vet 2–3 candidate
+   crates for maintenance and API coverage, benchmark against the Phase-A baseline
+   on realistic input). Allocator and GLES-binding choices are Phase B decisions
+   too — do not pre-empt them. Never swap a dependency "while you're in there."
 
 ## Quality bar — "done" means all of this
 
@@ -37,9 +46,12 @@ direnv). Additionally:
   or acceptable, use a scoped `#[allow(clippy::unwrap_used)]` **with a comment
   justifying it**. Test modules may blanket-allow both.
 - No `unsafe` without a `// SAFETY:` comment. FFI crates keep unsafe at the boundary.
-- New dependencies: pure Rust preferred; no `openssl-sys`, no `curl-sys`, nothing that
-  downloads at build time (Nix sandbox — see MIGRATION_PLAN.md "sandbox red flags").
-  After adding a dep, run `cargo tree -i openssl-sys` (expect "nothing depends on it").
+- New dependencies follow standing rule 6: Phase A binds the same C library the C++
+  uses (canonical Rust equivalent only where the C++ dep has no C ABI:
+  toml/serde_json/zbus). No `openssl-sys` (system libcurl does TLS itself), nothing
+  that downloads at build time (Nix sandbox — see MIGRATION_PLAN.md "sandbox red
+  flags"). After adding a dep, run `cargo tree -i openssl-sys` (expect "nothing
+  depends on it").
 - Match C++ behavior over "improving" it. Divergences must be deliberate and recorded
   in PROGRESS.log.
 

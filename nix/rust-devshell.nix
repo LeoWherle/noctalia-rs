@@ -42,7 +42,7 @@ pkgs.mkShell {
     fontconfig
     glib # transitive requirement of cairo/pango pkg-config
     # Buses & services
-    dbus # zbus is pure Rust; kept for dbus-run-session in integration tests
+    dbus # zbus is pure Rust (sdbus-c++ has no C ABI); kept for dbus-run-session in tests
     systemd # libudev/sd-* if needed; logind itself is spoken over zbus
     # Audio
     pipewire
@@ -50,22 +50,25 @@ pkgs.mkShell {
     # Auth / privilege
     linux-pam
     polkit # reference/tooling; the agent itself is implemented over zbus
-    # Secrets/crypto fallbacks (primary path is oo7 + RustCrypto, pure Rust)
+    # Networking (Phase A: `curl` crate over system libcurl)
+    curl
+    # Secrets & crypto (Phase A FFI: libsecret bindings, libsodium-sys-stable)
     libsecret
     libsodium
-    # Images (primary path is image/jxl-oxide/resvg, pure Rust; kept for parity
-    # tooling and in case a decoder gap forces FFI fallback)
+    # Images (Phase A FFI: libwebp-sys2, jpegxl-rs, librsvg)
     libwebp
     libjxl
     librsvg
+    # Markdown (Phase A FFI: thin bindgen shim)
+    md4c
     # Calculator (no Rust crate exists — hand-written cxx shim links this)
     libqalculate
-    libxml2 # librsvg/libqalculate transitive; caldav itself uses quick-xml
+    libxml2 # caldav XML (Phase A FFI via `libxml` crate); also librsvg transitive
   ];
 
   env = {
-    # If libsodium FFI is ever needed, link the Nix package instead of the
-    # vendored source build (libsodium-sys-stable honors this).
+    # Link the Nix libsodium instead of the crate's vendored source build
+    # (libsodium-sys-stable honors this).
     SODIUM_USE_PKG_CONFIG = "1";
   };
 

@@ -35,15 +35,16 @@ final phase (16) where it belongs.
 
 1. **Event loop**: `calloop` on the main thread. The C++ code is a single-threaded
    poll-source design (`*_poll_source.h` everywhere); calloop is a 1:1 fit and is what
-   `wayland-client` integrates with natively. Async-only libraries (zbus, reqwest) run
-   on a `tokio` runtime in a **sidecar thread**, bridged to the main loop with
+   `wayland-client` integrates with natively. Async-only libraries (zbus) and blocking
+   IO (libcurl) run on a `tokio` runtime in a **sidecar thread**, bridged to the main loop with
    `calloop::channel`. No async in crates that don't need it.
 2. **Wayland**: smithay's `wayland-client` with the **`wayland-backend/client_system`
    feature (dlopen)** — the Rust-native backend cannot hand a `wl_display*` to EGL, and
    we need EGL. This is load-bearing; do not "simplify" it away.
 3. **Text**: `pangocairo`/`cairo` via the gtk-rs FFI bindings (`pango`, `cairo-rs`),
-   same libraries the C++ uses — pixel-parity beats purity for a port. Revisit
-   cosmic-text only after cutover.
+   same libraries the C++ uses — pixel-parity beats purity for a port.
+   [future-candidate: cosmic-text (harfrust/swash/fontdb)] — Phase B task B.4;
+   fontconfig-matching parity is the known risk there.
 4. **Errors**: `thiserror` per-crate error enums in libraries, `anyhow` only in the
    `noctalia-shell` binary. No `.unwrap()`/`.expect()` outside tests without a
    justifying comment (clippy enforces this — see workspace lints).
@@ -52,48 +53,75 @@ final phase (16) where it belongs.
    preserves user formatting/comments (config export/migrations), `serde_json` for IPC
    and theme JSON output.
 
-## Crate decisions & FFI fallbacks
+## Dependency strategy — two-phase, per module
 
-| C++ dependency | Rust replacement | Kind |
-|---|---|---|
-| tomlplusplus | `toml` + `toml_edit` + `serde` | pure Rust |
-| nlohmann_json | `serde_json` | pure Rust |
-| sdbus-c++, gio (bus) | `zbus` | pure Rust |
-| libcurl | `reqwest` (rustls; **never** native-tls/openssl) | pure Rust |
-| libxml2 (caldav) | `quick-xml` / `roxmltree` | pure Rust |
-| md4c | `pulldown-cmark` | pure Rust |
-| fzy | `nucleo-matcher` | pure Rust |
-| libsecret + Secret Service | `oo7` | pure Rust |
-| libsodium | RustCrypto crates matched per call-site (audit first: task 7.6) | pure Rust |
-| libwebp | `image` + `image-webp` | pure Rust |
-| libjxl | `jxl-oxide` | pure Rust |
-| librsvg | `resvg` (librsvg itself is Rust but has no usable crate API) | pure Rust |
-| stb / ico decoding | `image` | pure Rust |
-| wayland-client (C) | `wayland-client` + `wayland-protocols{,-wlr,-misc}` + `smithay-client-toolkit` | pure Rust (but `client_system` dlopens libwayland for EGL) |
-| libxkbcommon | `xkbcommon` crate | **FFI**, pkg-config |
-| EGL | `khronos-egl` (dlopen) + `wayland-egl` | **FFI** |
-| GLES2/epoxy | `glow` | pure Rust loader over driver |
-| cairo/pango/harfbuzz/freetype/fontconfig | gtk-rs `cairo-rs`, `pango`, `pangocairo` | **FFI**, pkg-config |
-| libpipewire | `pipewire` (pipewire-rs, official) | **FFI**, bindgen |
-| wireplumber | none mature → talk to PipeWire registry/metadata directly via pipewire-rs; only if a needed WP-only feature appears, FFI `wireplumber-0.5` by hand | **FFI** decision deferred to task 9.1 |
-| libpam | `pam` crate | **FFI** |
-| polkit-agent-1 | none needed — register the agent over D-Bus with zbus, answer with the `pam` crate | pure Rust + PAM FFI |
-| libqalculate | no crate → thin C++ shim via `cxx` in `crates/noctalia-qalc-sys` | **FFI**, hand-written shim |
-| glib/gobject | only as transitive of cairo/pango bindings; never used directly | FFI |
-| jemalloc | drop (Rust default allocator; revisit only if profiling says so) | — |
-| drwav (sounds) | `hound` or `symphonia`; playback through pipewire-rs | pure Rust |
+**Phase A (default for everything in Phases 1–16): FFI against the same C library
+the C++ code already uses**, matching existing behavior as closely as possible, with
+tests proving parity. The goal is a correct, working baseline fast — not the "best"
+dependency choice. Use maintained binding crates where they exist (`pango`,
+`cairo-rs`, `pipewire`, `pam`, `xkbcommon`, `curl`, `libsecret`, `jpegxl-rs`, …);
+write thin bindgen/cxx shims where they don't (md4c, libqalculate). Vendored
+`third_party/` C stays vendored (fzy, drwav, wuffs, material-color-utilities):
+compile it with the `cc` crate — offline-safe, and behavior stays bit-identical
+(e.g. fzy match scores).
+
+Exception — C++-only dependencies with no C ABI cannot be FFI'd; use the canonical
+Rust equivalent and prove parity by porting the C++ tests:
+- tomlplusplus → `toml`/`toml_edit` + `serde`
+- nlohmann_json → `serde_json`
+- sdbus-c++ (C++ binding over sd-bus) → `zbus` — the parity target is the
+  wire-level D-Bus interface, pinned down by ported tests and mock bus servers
+- Luau → dropped entirely (plugin system is out of scope)
+
+**Phase B (tracked, never assumed): measured swaps to pure-Rust crates.** Modules
+with a plausible pure-Rust alternative carry a `[future-candidate: crate(s)]` tag on
+their Phase-A task and a matching task in Phase 17. Do **not** act on these during
+Phase A. Phase B is gated on (a) Phase A working and tested across the whole shell
+and (b) real profiling data (CPU/RAM/VRAM) showing where resources actually go
+(task B.1).
+
+Before starting Phase B work on any module, do this research first and record it in
+the task entry:
+1. Read the actual C API calls the module makes today — the specific functions and
+   types used, not the library in the abstract.
+2. Identify 2–3 real candidate crates and check: current maintenance activity,
+   whether their API actually covers the calls found in step 1 (not just "similar
+   purpose"), and known gaps for our use case.
+3. If the module is performance-relevant, benchmark the candidate against the
+   working Phase-A FFI baseline on realistic input — not an isolated microbenchmark.
+4. Swap only on a clear measured win in correctness, dependency footprint, or the
+   CPU/VRAM/RAM goal.
+
+Deliberately undecided until Phase B (do not guess up front):
+- **Allocator** (system vs jemalloc vs mimalloc vs snmalloc): Phase A uses the
+  system allocator; task B.2 decides on profiling data. The C++ build's jemalloc
+  option is not an argument either way.
+- **GLES binding surface** (`glow` vs raw bindgen over GLES2 headers): task 11.2
+  picks whichever ports fastest, records it in PROGRESS.log as *provisional*;
+  task B.3 decides for real against frame-time data.
+
+Never Phase B — no realistic pure-Rust replacement exists: EGL/GLES (driver-level
+API), libpipewire/wireplumber (pipewire-rs is itself a binding), PAM (C ABI plugin
+system), libxkbcommon, libqalculate (reimplementing a CAS is scope creep),
+libwayland (EGL interop requires the C implementation), wuffs (already memory-safe
+by design).
 
 ### Nix-sandbox red flags (build-time network / non-pkg-config -sys crates)
 
-- **`openssl-sys`**: must never enter the tree. Every `reqwest`/`tungstenite`-ish dep
-  gets `default-features = false, features = ["rustls-tls"]`. Check with
-  `cargo tree -i openssl-sys` (part of `just check` would be overkill; run when adding deps).
-- **`pipewire-sys` / any bindgen crate**: runs bindgen at build → needs libclang. The
-  dev shell provides `rustPlatform.bindgenHook`. Fine offline.
-- **`libsodium-sys`** (if RustCrypto replacement fails): default build compiles a
-  vendored copy — offline-safe, but prefer `libsodium-sys-stable` +
-  `SODIUM_USE_PKG_CONFIG=1` (shell exports it) so we link the Nix package.
-- **`curl-sys`**: banned (transitively too) — reqwest covers everything.
+- **`openssl-sys`**: must never enter the tree (system libcurl does its own TLS; if
+  a future Phase-B HTTP crate needs TLS, it's rustls). Check with
+  `cargo tree -i openssl-sys` when adding deps.
+- **`pipewire-sys` / any bindgen crate** (incl. our own md4c/qalculate shims): runs
+  bindgen at build → needs libclang. The dev shell provides
+  `rustPlatform.bindgenHook`. Fine offline.
+- **`curl-sys`**: links system libcurl via pkg-config when available (the dev shell
+  guarantees it). It has a vendored-source fallback — offline-safe but wrong; verify
+  once in build output that it linked the Nix libcurl.
+- **`libsodium-sys`**: default build compiles a vendored copy — offline-safe, but
+  use `libsodium-sys-stable` + `SODIUM_USE_PKG_CONFIG=1` (shell exports it) so we
+  link the Nix package.
+- **webp/jxl bindings**: pick pkg-config-linking variants (`libwebp-sys2`,
+  `jpegxl-rs` with its pkg-config feature), not vendored-build ones.
 - Anything that *downloads* at build time (protoc fetchers, prebuilt `.a` grabbers) is
   banned; there is no known need for any.
 
@@ -167,8 +195,11 @@ final phase (16) where it belongs.
 - [ ] 3.3 M3 scheme generation — src: `m3_schemes.cpp`, `scheme.{cpp,h}`,
   `palette_generator.*`, `palette_transform.*` → `theme::scheme`. Done: golden outputs
   for ≥5 seed colors match C++ exactly.
-- [ ] 3.4 Image loading (theme) — src: `src/theme/image_loader.*` → `theme::image` on
-  `image`/`jxl-oxide`/`resvg`. Done: port `tests/ico_decoder_test.cpp`,
+- [ ] 3.4 Image loading (theme) — src: `src/theme/image_loader.*` → `theme::image`.
+  Phase A FFI: libwebp (`libwebp-sys2`), libjxl (`jpegxl-rs`), librsvg (thin bindgen
+  if no maintained binding fits), own ico decoder straight-ported (wuffs stays
+  vendored via `cc`). [future-candidate: image, image-webp, jxl-oxide, resvg → B.6]
+  Done: port `tests/ico_decoder_test.cpp`,
   `image_file_loader_data_uri_test.cpp`, `image_source_log_test.cpp`; decode one sample
   of each format (png/jpg/webp/jxl/svg/ico) from `assets/`.
 - [ ] 3.5 Template engine — src: `template_engine.{cpp,h}` → `theme::template`. Done:
@@ -202,9 +233,9 @@ final phase (16) where it belongs.
 - [ ] 5.4 Battery warning logic — src: `battery_warning_monitor.*` → `system::battery`.
   Done: state-machine test ported (thresholds, hysteresis).
 - [ ] 5.5 App identity + desktop entries — src: `app_identity.*` and desktop-entry code
-  in `src/system` (see `tests/desktop_entry_launch_test.cpp`) → `system::apps` using
-  `freedesktop-desktop-entry` crate (pure Rust) if it matches semantics, else hand-port.
-  Done: port `tests/app_identity_test.cpp`, `desktop_entry_launch_test.cpp`,
+  in `src/system` (see `tests/desktop_entry_launch_test.cpp`) → `system::apps`,
+  hand-ported to match C++ semantics exactly.
+  [future-candidate: freedesktop-desktop-entry → B.14] Done: port `tests/app_identity_test.cpp`, `desktop_entry_launch_test.cpp`,
   `icon_resolver_test.cpp` (icon resolver may live here or ui — follow C++ placement).
 - [ ] 5.6 Remaining `src/system` services (audit dir, list them in PROGRESS.log, split
   if >2h) → `system::*`. Done: each has at least a smoke test; ported tests green.
@@ -238,22 +269,31 @@ final phase (16) where it belongs.
   phase. Done: agent registers against a mock authority; session objects tracked.
 
 ### Phase 7 — Networking, calendar, secrets (`crates/noctalia-net`, `crates/noctalia-calendar`)
-- [ ] 7.1 HTTP layer — src: `src/net/*` (7 files) → `net::http` on reqwest(rustls) in
-  the tokio sidecar. Done: wiremock-based tests for retry/timeout/etag behavior ported
-  from C++ semantics.
+- [ ] 7.1 HTTP layer — src: `src/net/*` (7 files) → `net::http`. Phase A FFI: `curl`
+  crate over system libcurl — same engine as the C++, so TLS/proxy/redirect semantics
+  carry over for free; runs on the sidecar thread. [future-candidate:
+  reqwest(rustls), ureq → B.7] Done: wiremock-based tests for retry/timeout/etag
+  behavior ported from C++ semantics.
 - [ ] 7.2 iCal parsing + recurrence — src: `src/calendar/` parsing code →
-  `calendar::ical` (hand-port on `rrule` crate only if its results match; the C++
-  recurrence tests decide). Done: port `tests/ical_recurrence_test.cpp` — every case.
-- [ ] 7.3 CalDAV — src: `src/calendar` caldav discovery/sync → `calendar::caldav` with
-  `quick-xml`. Done: port `tests/calendar_discovery_state_test.cpp`; wiremock fixtures.
+  `calendar::ical`, hand-ported (it's Noctalia's own code, no C dep).
+  [future-candidate: rrule crate, if its results match the ported tests → Phase B]
+  Done: port `tests/ical_recurrence_test.cpp` — every case.
+- [ ] 7.3 CalDAV — src: `src/calendar` caldav discovery/sync → `calendar::caldav`.
+  Phase A FFI: libxml2 via the `libxml` crate, mirroring the C++ parsing paths.
+  [future-candidate: quick-xml, roxmltree → B.8] Done: port
+  `tests/calendar_discovery_state_test.cpp`; wiremock fixtures.
 - [ ] 7.4 Google Calendar — src: google client code → `calendar::google`. Done: port
   `tests/google_client_calendar_list_test.cpp`.
 - [ ] 7.5 Calendar cache + credentials — src: cache/credential store →
-  `calendar::store` (secrets via `oo7`). Done: port
-  `tests/calendar_cache_permissions_test.cpp`, `calendar_credential_store_test.cpp`.
-- [ ] 7.6 Sodium audit — grep all libsodium call sites (`src/security/*`, clipboard?),
-  document each primitive in this file, map to RustCrypto crates, port
-  `src/security/*` (8 files) → `noctalia-core::crypto` or a `security` module. Done:
+  `calendar::store`. Phase A FFI: libsecret via the gtk-rs `libsecret` bindings,
+  same keyring semantics as C++. [future-candidate: secret-service, oo7 → B.9]
+  Done: port `tests/calendar_cache_permissions_test.cpp`,
+  `calendar_credential_store_test.cpp`.
+- [ ] 7.6 Security/crypto — src: `src/security/*` (8 files) → `noctalia-core::crypto`
+  or a `security` module. Phase A FFI: libsodium via `libsodium-sys-stable`
+  (pkg-config) with thin safe wrappers — byte-identical formats guaranteed. While
+  porting, document every primitive/call-site in the task (that audit is the input
+  Phase B needs). [future-candidate: RustCrypto per-primitive → B.10] Done:
   interop test — Rust decrypts what C++ encrypted (fixtures) where data persists.
 
 ### Phase 8 — Audio (`crates/noctalia-audio`)
@@ -265,8 +305,10 @@ final phase (16) where it belongs.
   for state mapping; `tests/audio_glyphs_test.cpp` ported.
 - [ ] 8.2 Volume/mute control + per-node streams — → `audio::control`. Done: manual
   matrix vs C++ (volume up/down/mute on sink/source/stream) logged in PROGRESS.log.
-- [ ] 8.3 Sound playback (notification sounds) — drwav usage → `audio::playback` with
-  `hound` + pipewire stream. Done: plays a wav fixture; format conversion test.
+- [ ] 8.3 Sound playback (notification sounds) — drwav usage → `audio::playback`:
+  vendored drwav compiled via `cc` + bindgen shim, pipewire stream out.
+  [future-candidate: hound, symphonia → B.13] Done: plays a wav fixture; format
+  conversion test.
 - [ ] 8.4 VU/peak monitoring if present in C++ (audit `src/pipewire`) → `audio::meter`.
   Done: captures levels from a test stream.
 
@@ -320,9 +362,12 @@ final phase (16) where it belongs.
 - [ ] 11.1 EGL bootstrap — src: `src/render/backend/*`, `render_context.{cpp,h}` →
   `render::egl` (khronos-egl + wayland-egl window, GLES2 context, no shared context
   yet). Done: clears a layer surface to a color under nested compositor.
-- [ ] 11.2 GL abstractions — src: `src/render/core/*` → `render::gl` on `glow`
-  (buffers, textures, framebuffers, state cache). Done: offscreen (surfaceless EGL)
-  unit tests render triangles to FBO and readback-assert pixels.
+- [ ] 11.2 GL abstractions — src: `src/render/core/*` → `render::gl` (buffers,
+  textures, framebuffers, state cache). Binding surface is **provisional** per the
+  dependency strategy: pick `glow` or raw bindgen over GLES2 headers, whichever
+  ports fastest, and record the pick + rationale in PROGRESS.log; B.3 decides for
+  real on frame-time data. Done: offscreen (surfaceless EGL) unit tests render
+  triangles to FBO and readback-assert pixels.
 - [ ] 11.3 Shader programs — src: `src/render/programs/*` → `render::programs` (port
   GLSL verbatim; keep sources as `.glsl` includes). Done: each program links on GLES2
   in offscreen tests; rect/rounded-rect/shadow renders match C++ readback goldens.
@@ -344,8 +389,10 @@ final phase (16) where it belongs.
   (hover, click, scroll, keyboard focus traversal).
 - [ ] 12.3 Icon resolver + image widgets — (with 5.5) → `ui::icons`. Done:
   `tests/icon_resolver_test.cpp` ported; themes resolve identically.
-- [ ] 12.4 Markdown — md4c usage → `ui::markdown` on pulldown-cmark. Done: rendered
-  AST tests for the markdown corpus the C++ supports.
+- [ ] 12.4 Markdown — md4c usage → `ui::markdown`. Phase A FFI: md4c via a thin
+  bindgen shim (small C API, exact parser parity). [future-candidate:
+  pulldown-cmark, comrak → B.11] Done: rendered AST tests for the markdown corpus
+  the C++ supports.
 - [ ] 12.5–12.x Widget set — port `src/ui/widgets` in batches of 3–6 related widgets
   per task (buttons/toggles; sliders; lists/scroll; text inputs w/ 10.7; menus;
   graphs — reuse `capsule_group_reconcile_test.cpp` etc.). Done per batch: golden-image
@@ -368,11 +415,11 @@ final phase (16) where it belongs.
 
 ### Phase 14 — Shell modules, the long tail (`crates/noctalia-shell`)
 Each is one or more tasks; split on first contact and record in this file:
-- [ ] 14.1 Launcher — src: `src/shell/launcher/*`, `src/launcher/*` (27 files),
-  fzy→nucleo. Done: `tests/dock_pinned_apps_test.cpp`-adjacent tests ported; fuzzy
-  ranking spot-matches C++ for a fixture corpus (note: nucleo ≠ fzy scores; assert
-  top-3 stability, not exact scores). Includes qalculate integration via
-  `noctalia-qalc-sys` shim.
+- [ ] 14.1 Launcher — src: `src/shell/launcher/*`, `src/launcher/*` (27 files).
+  Fuzzy match: vendored fzy compiled via `cc` — match scores stay bit-identical.
+  [future-candidate: nucleo-matcher → B.12] Done: launcher-adjacent tests ported;
+  fuzzy ranking exactly matches C++ for a fixture corpus. Includes qalculate
+  integration via the `noctalia-qalc-sys` cxx shim (permanent FFI — see strategy).
 - [ ] 14.2 Control center — src: `src/shell/control_center/*` (incl. dynamic-span
   shortcuts, #3676). Done: visual parity + toggle actions work.
 - [ ] 14.3 Dock — src: `src/shell/dock/*`. Done: pinned-apps tests ported.
@@ -423,9 +470,44 @@ Do these late and carefully; they can lock you out of your session.
   deferred from 14.9/16.2. Done: overview shows live thumbnails, no leaks (16.1 stress
   harness re-run).
 - [ ] 16.5 main.cpp parity + cutover — src: `src/app/*` (16 files), `main.cpp` →
-  `noctalia-shell::main` (startup order, sd-notify via `sd-notify` crate, signal
+  `noctalia-shell::main` (startup order, sd_notify readiness — a one-datagram
+  protocol, hand-implement or `sd-notify` crate, no libsystemd FFI warranted, signal
   handling, crash guard). Done: full-day daily-drive checklist in PROGRESS.log; meson
   build marked deprecated in README; `nix/package.nix` gains a Rust build.
+
+### Phase 17 — Phase B: measured dependency swaps
+**Gate: do not start any of these until 16.5 (cutover) is done AND B.1 has produced
+numbers.** Every task here follows the 4-step research process in "Dependency
+strategy" and records its findings inline before any code changes.
+- [ ] B.1 Profiling baseline — repeatable harness (perf + heaptrack for CPU/RSS,
+  GPU memory via DRM fdinfo; scripted scenario: cold start, bar idle 10 min,
+  launcher open/search, notification storm, lock/unlock). Run against C++ and
+  Rust-Phase-A builds. Done: numbers + ranked hot spots committed (docs/profiling/).
+- [ ] B.2 Allocator [future-candidate: tikv-jemallocator, mimalloc, snmalloc] vs
+  system malloc, decided on B.1 scenarios. Done: decision + numbers recorded here.
+- [ ] B.3 GLES binding [future-candidate: glow vs raw bindgen] — re-decide 11.2's
+  provisional pick on frame-time/overhead data. Done: decision recorded, loser removed.
+- [ ] B.4 Text stack [future-candidate: cosmic-text (harfrust/swash/fontdb)] vs
+  pangocairo FFI. Riskiest swap: fontconfig matching parity is the known gap; needs
+  a render-parity corpus (scripts incl. RTL/CJK/emoji) + shaping benchmarks.
+- [ ] B.5 2D raster [future-candidate: tiny-skia] — only where cairo rasters outside
+  the text path; step-1 audit of actual cairo API usage decides if this even exists
+  as a separable swap.
+- [ ] B.6 Image decoders [future-candidate: image, image-webp, jxl-oxide, resvg] vs
+  libwebp/libjxl/librsvg — correctness corpus + decode-time benchmarks.
+- [ ] B.7 HTTP [future-candidate: reqwest(rustls), ureq] vs libcurl.
+- [ ] B.8 XML [future-candidate: quick-xml, roxmltree] vs libxml2 (caldav only —
+  tiny surface, likely an easy win, still needs the checklist).
+- [ ] B.9 Secrets [future-candidate: secret-service, oo7] vs libsecret.
+- [ ] B.10 Crypto [future-candidate: RustCrypto per-primitive] vs libsodium — input
+  is the 7.6 call-site audit; on-disk/interop format compatibility is mandatory.
+- [ ] B.11 Markdown [future-candidate: pulldown-cmark, comrak] vs md4c — parser
+  behavior diff over the notification/UI markdown corpus.
+- [ ] B.12 Fuzzy match [future-candidate: nucleo-matcher] vs vendored fzy — ranking
+  is UX-visible; needs a side-by-side corpus comparison, not score equality.
+- [ ] B.13 WAV decode [future-candidate: hound, symphonia] vs vendored drwav.
+- [ ] B.14 Desktop entries [future-candidate: freedesktop-desktop-entry] vs the 5.5
+  hand-port.
 
 ## Session-restart protocol (for a cold session)
 
