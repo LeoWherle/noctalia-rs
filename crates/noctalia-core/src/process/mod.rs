@@ -1,15 +1,16 @@
 //! Port of `src/core/process/*` — task 1.6, split across 1.6.1-1.6.6 (see
 //! MIGRATION_PLAN.md) because the C++ source spans genuinely distinct concerns
-//! at ~30 public functions. So far this covers the core synchronous exec
-//! machinery (1.6.1): `RunResult`/`RunOptions`/`EnvOverride` and `run_sync`/
+//! at ~30 public functions. This covers: the core synchronous exec machinery
+//! (1.6.1): `RunResult`/`RunOptions`/`EnvOverride` and `run_sync`/
 //! `run_sync_with_options`, built on `runSyncProcess`'s fork/exec/pipe/poll loop
 //! (timeout, cancellation, output-byte-limit truncation, process-group
-//! signaling); and worker-thread async execution (1.6.2): `RunCallbacks` and
+//! signaling); worker-thread async execution (1.6.2): `RunCallbacks` and
 //! the `run_async*`/`run_sync_shell` family in `async_exec`, wrapping
 //! `run_sync_process` from a spawned thread instead of adding new fork/exec
-//! machinery. Detached double-fork spawning, `/proc` scanning, systemd
-//! integration, and fd diagnostics are separate subtasks layered on top of
-//! this module.
+//! machinery; double-fork detached spawning and PATH search (1.6.3, `detached`);
+//! `/proc` command-line scanning/matching (1.6.4, `matching`); systemd
+//! user-manager integration (1.6.5, `systemd`); and fd-limit/diagnostics
+//! (1.6.6, `fds`).
 //!
 //! Two deliberate divergences from the C++, both load-bearing enough to record
 //! here rather than just in a code comment:
@@ -45,6 +46,7 @@
 mod async_exec;
 mod core_exec;
 mod detached;
+mod fds;
 mod matching;
 mod systemd;
 
@@ -56,6 +58,10 @@ pub use core_exec::{EnvOverride, RunOptions, RunResult, run_sync, run_sync_with_
 pub use detached::{
     command_exists, launch_detached, launch_detached_shell, launch_detached_tracked,
     launch_first_available, resolve_privilege_escalator, terminate_tracked,
+};
+pub use fds::{
+    describe_open_file_descriptors, describe_open_file_descriptors_with_max_targets,
+    raise_open_file_limit,
 };
 pub use matching::{command_line_matches_all, desktop_portal_available, flatpak_app_installed};
 pub use systemd::{

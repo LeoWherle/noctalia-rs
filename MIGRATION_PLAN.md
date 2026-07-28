@@ -148,7 +148,7 @@ by design).
 - [x] 1.5 Event-loop skeleton — new `core::event_loop`: calloop `EventLoop` wrapper +
   tokio sidecar thread + channel bridge (Architecture decision 1). Done: test sends a
   message from a tokio task to a calloop callback and back.
-- [ ] 1.6 Process spawning — src: `src/core/process/*` → `core::process`. Split (session
+- [x] 1.6 Process spawning — src: `src/core/process/*` → `core::process`. Split (session
   hitting `src/core/process/process.cpp` at 968 lines + `process_fds.cpp`, ~30 public
   functions across genuinely distinct concerns, vs. `tests/process_test.cpp` at 249
   lines): see 1.6.1-1.6.6 below, ordered core-first since later ones depend on the
@@ -189,7 +189,7 @@ by design).
     `startSystemdService` end-to-end needs a live `systemd --user` + `systemd-run` —
     manual check logged in PROGRESS.log, matching the pattern used elsewhere in this
     plan for live-service-dependent behavior (e.g. task 6.3's `loginctl lock-session`).
-  - [ ] 1.6.6 Process FD diagnostics — src: `src/core/process/process_fds.{cpp,h}` →
+  - [x] 1.6.6 Process FD diagnostics — src: `src/core/process/process_fds.{cpp,h}` →
     `process::fds` (or a submodule of `core::process`): `raiseOpenFileLimit`,
     `describeOpenFileDescriptors`. Done: no C++ test exists; unit tests for the
     fd-target bucketing (`socket:`/`pipe:`/`memfd:`/long-path truncation) and a smoke

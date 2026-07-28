@@ -658,3 +658,88 @@ Next step: task 1.6.6 (process FD diagnostics — raiseOpenFileLimit,
   smoke test are the bar). This closes out task 1.6 (process spawning)
   entirely — remember to flip 1.6's own top-level checkbox once 1.6.6 lands,
   not just 1.6.6's.
+
+## 2026-07-29 (session 14)
+Attempted: task 1.6.6 — process FD diagnostics, the last subtask of 1.6.
+Done: 1.6.6 (and, with it, all of 1.6 — flipped both checkboxes in
+  MIGRATION_PLAN.md). New `noctalia-core::process::fds` (crates/noctalia-core/
+  src/process/fds.rs), wired into `process::mod` alongside 1.6.1-1.6.5:
+  `raise_open_file_limit` (getrlimit → no-op if already at the hard limit →
+  setrlimit raising rlim_cur to rlim_max only, logging every outcome via a
+  `Logger::new("fdlimit")` matching the C++'s `kLog("fdlimit")`) and
+  `describe_open_file_descriptors`/`describe_open_file_descriptors_with_max_
+  targets` (a `/proc/self/fd` census via raw `libc::opendir`/`readdir`/
+  `dirfd`/`closedir` — not `std::fs::read_dir`, which doesn't expose the
+  directory-listing's own fd, needed to exclude it from the count the same
+  way the C++'s `dirfd(dir)` comparison does — bucketed by target kind via
+  `bucket_target` (`socket:`/`pipe:`/`memfd:`+`/memfd:` → fixed labels,
+  `anon_inode:` passed through unchanged, everything else truncated past 120
+  bytes), each target resolved by `read_fd_target`'s growing-buffer
+  `libc::readlink` loop (512 → doubling → 8192-byte giveup cap, same as the
+  C++), sorted count-descending-then-name-ascending, formatted identically to
+  the C++'s `std::format` calls including the `maxTargets`/`max_targets`
+  default-argument split (no Rust default args, so `describe_open_file_
+  descriptors()` is the zero-arg convenience call and `_with_max_targets`
+  the explicit form, matching the `run_sync`/`run_sync_with_options` naming
+  convention already used elsewhere in `process::*`).
+  Three divergences recorded in the module doc comment (all minor, matching
+  the "record even unreachable ones" convention from prior sessions): (1)
+  error messages use `std::io::Error`'s `Display` (includes the numeric
+  errno) instead of bare `strerror(errno)` — diagnostic-only text, strictly
+  more information, not a behavior change; (2) `bucket_target`'s long-path
+  truncation clamps to the nearest UTF-8 char boundary at or before byte 117
+  (via a new `truncate_to_char_boundary` helper) rather than the C++'s exact
+  byte-117 cut, since a Rust `String` must stay valid UTF-8 where a C++
+  `std::string` is just bytes — unreachable in practice since `/proc/self/fd/*`
+  targets are overwhelmingly ASCII, and at most 2 bytes shorter than the C++
+  even when it does trigger; (3) `read_fd_target` lossily converts raw
+  `readlink` bytes to UTF-8 rather than storing them as opaque bytes like
+  `process::matching`'s byte-fidelity-load-bearing `/proc/<pid>/cmdline`
+  scanning — not load-bearing here since this output is display-only
+  diagnostic text, never substring-matched against anything.
+  No C++ test exists for either function (verified via repo-wide grep: zero
+  references to `ProcessFds`/`raiseOpenFileLimit`/`describeOpenFileDescriptors`
+  under tests/, only hits in process_fds.{cpp,h} itself, its two callers
+  (main.cpp, wayland_connection.cpp), and meson.build) — the task's own bar is
+  unit tests for the FD-target bucketing plus a smoke test that
+  raise_open_file_limit never lowers the soft limit and describe_open_file_
+  descriptors's output is well-formed, which is what's here: bucketing tests
+  for all four prefix classes plus the long-path truncation (asserting the
+  exact 120-byte result length), a `truncate_to_char_boundary` test using a
+  2-byte-wide character specifically chosen so byte 117 (odd) is guaranteed
+  to split a character (a 3-byte character would've made byte 117 already a
+  boundary, silently skipping the decrement-loop branch — caught by the
+  pre-done review below, fixed before committing), a live `raise_open_file_
+  limit` smoke test comparing real getrlimit results before/after, and
+  `describe_open_file_descriptors` smoke tests including one that actually
+  opens a real pipe via `libc::pipe` and confirms it shows up in the `pipe=`
+  bucket.
+  Pre-done review (rule 3, fresh subagent): independently traced the
+  `bucketTarget` prefix order and the `readFdTarget` buffer-growth loop
+  step-by-step against process_fds.cpp (confirmed identical iteration counts
+  and giveup point, no off-by-one), confirmed the `dirfd`-based own-fd
+  exclusion and its comparison logic, confirmed all four `raiseOpenFileLimit`
+  log call sites have message-equivalent Rust counterparts and that
+  `rlim_cur` is never assigned anything but `rlim_max` (never a lower),
+  audited every `unsafe` block (opendir/dirfd/readdir/readlink/CStr::from_ptr/
+  closedir/getrlimit/setrlimit, plus pipe/close in tests) for accurate SAFETY
+  comments, confirmed the sort comparator and `top_fd_targets`/`max_targets==0`
+  formatting match the C++ exactly, independently verified no C++ test exists,
+  and ran `just check` plus targeted `cargo test`/`cargo clippy` clean. One
+  nitpick, fixed before committing: the char-boundary test's original 3-byte
+  test character made byte 117 already a boundary, never exercising the
+  decrement loop it claimed to test — swapped for a 2-byte character with an
+  explicit `assert!(!s.is_char_boundary(117))` setup check so the test
+  actually fails loudly if that assumption ever stops holding. Verdict PASS.
+  (Separately, this session's own first `just check` run caught one real
+  clippy failure before the review: a `collapsible_if` on the dirfd-exclusion
+  check, fixed by merging into a single `if let ... && ...` per clippy's
+  suggestion — not a behavior change.)
+Half-finished: nothing.
+Next step: task 1.7 (misc core — src/core/random.h, scoped_timer.h,
+  build_info.*, ui_phase.*, src/debug/* → core::{random,build_info,ui_phase}).
+  Done bar: compiles, trivial unit tests, git_revision generated via build.rs
+  with no network access (Nix sandbox constraint — see MIGRATION_PLAN.md's
+  sandbox red flags). This is the first task in Phase 1 with no direct
+  fork/exec dependency on 1.6's process module, so a fresh read of those four
+  C++ source areas is the right starting point next session.
