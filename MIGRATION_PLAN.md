@@ -466,7 +466,7 @@ by design).
   `tests/config_migration_test.cpp`.
 - [x] 2.7 Export — src: `config_export.{cpp,h}` → `config::export`. Done: byte-compare
   exported output with C++ binary for the same input config.
-- [ ] 2.8 State store — src: `state_store.{cpp,h}` → `config::state_store`. Done:
+- [x] 2.8 State store — src: `state_store.{cpp,h}` → `config::state_store`. Done:
   ported round-trip + permission tests.
 - [ ] 2.9 Config service & polling — src: `config_service.{cpp,h}`,
   `config_poll_source.h` → `config::service` (calloop file-watch source). Done: test:

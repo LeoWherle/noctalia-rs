@@ -1880,5 +1880,13 @@ Done: 2.7, flipped in MIGRATION_PLAN.md. New `noctalia-config::export` (`crates/
   Implemented `serialize(config: &Config) -> toml::Table`, producing table output for all schema sections, `lockscreen_widgets`, `desktop_widgets`, `bar` (with resolved/flattened monitor override emit and `order` array), `widget`, and open-ended `plugin_settings` (including string maps and setting value variants).
   Tests: unit tests verifying table emission for all sections, open-ended string map serialization, and schema-driven roundtrip reconstruction.
   `just check` clean (235 tests green).
-Half-finished: nothing.
 Next step: task 2.8 (state store — `src/config/state_store.{cpp,h}` → `config::state_store`).
+
+## 2026-07-29 (session 35)
+Attempted: task 2.8 — state store.
+Done: 2.8, flipped in MIGRATION_PLAN.md. New `noctalia-config::state_store` (`crates/noctalia-config/src/state_store.rs`), porting `src/config/state_store.{cpp,h}`:
+  Implemented `StateStore` struct and helper functions (`valid_state_identifier`, `secure_state_file` applying `0o600` permissions on creation and load), `load`, `bool_value`, `string_value`, `set_bool`, `set_string`, `clear_owner`, using `write_text_file_atomic` with explicit `0o600` mode and symlink preservation.
+  Tests: ported test cases from `tests/state_store_test.cpp` covering bool/string round-trips, owner clearing, invalid identifier rejection, `0o600` owner-only permissions on create & load tightening, wrong type rejection, and symlink target preservation.
+  `just check` clean (240 tests green).
+Half-finished: nothing.
+Next step: task 2.9 (config service & polling — `src/config/config_service.{cpp,h}`, `config_poll_source.h` → `config::service`).
