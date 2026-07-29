@@ -295,7 +295,7 @@ by design).
     not here). Done: deserialize `[theme]`/`[theme.templates]`, then the
     **whole** `example.toml` losslessly through the assembled `Config`
     struct — this is where task 2.1's original done-bar actually lands.
-- [ ] 2.2 Widget config — src: `src/config/widget_config.{cpp,h}`,
+- [x] 2.2 Widget config — src: `src/config/widget_config.{cpp,h}`,
   `widget_setting_value.h` → `config::widget`. Done: port `tests/config_widget_test.cpp`.
   Note (session 20): `widget_setting_value.h` itself already landed as part of
   2.1.2 (pulled forward, per this task's own dependency note above) —

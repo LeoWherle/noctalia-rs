@@ -1290,3 +1290,73 @@ Next step: task 2.2 (widget config — `widget_config.cpp`'s
   `tests/config_widget_test.cpp`; `WidgetSettingValue` itself and
   `resolveWidgetBarCapsuleSpec` are already available from this session). After
   that, 2.1.3 (shell config) continues the 2.1.x split.
+
+## 2026-07-29 (session 21)
+Attempted: task 2.2 — widget config, the remaining slice after 2.1.2 pulled
+  `WidgetSettingValue` forward.
+Done: 2.2, flipped in MIGRATION_PLAN.md. New `noctalia-config::types::widget`
+  (`crates/noctalia-config/src/types/widget.rs`), wired into `types::mod`: a
+  port of `widget_config.cpp`'s three remaining functions —
+  `read_widget_setting_value` (type-dispatch string/int/float/bool/array/table,
+  preserving the C++'s real asymmetry between the array and table branches:
+  non-string array elements are silently dropped, but a single non-string
+  value anywhere in a table rejects the whole table), `seed_builtin_widgets`
+  (all 13 builtin widgets — cpu/temp/ram/network_tx/network_rx/output_volume/
+  input_volume/date/active_window/media/keyboard_layout/lock_keys/spacer —
+  byte-for-byte type strings and setting keys/values/types, including
+  `active_window`'s `icon_size` = `f64::from(Style::fontSizeBody)`, `ui/style.h`'s
+  14.0f, cast the same way the C++ does), and `read_bar_widget_config` (the
+  three-way type-resolution branch: explicit `type` + matching-type builtin ->
+  inherit settings/tables; explicit `type` + no match -> bare type; no `type` +
+  builtin exists -> full clone; no `type` + no builtin -> type defaults to the
+  entry name; then the per-key loop routing table values into `.tables` and
+  everything else through `read_widget_setting_value` into `.settings`, with a
+  parse failure silently dropping that one key exactly like the C++'s
+  `if (parsed.has_value())` guard).
+  Same adaptation pattern as 2.1.2's `output_matches_selector`: both
+  `seed_builtin_widgets`/`read_bar_widget_config` take
+  `&mut HashMap<String, WidgetConfig>`/`&HashMap<String, WidgetConfig>`
+  directly rather than `&mut Config`/`&Config` (the not-yet-ported root
+  aggregate, task 2.1.9) — verified by reading `widget_config.cpp` that both
+  C++ functions touch `Config` only via `.widgets`, so the narrowing is sound,
+  not just convenient; callers adapt once the root `Config` struct lands.
+  Small local `FONT_SIZE_BODY` constant duplicates `bar.rs`'s private
+  `style_defaults` module's same placeholder (same "no assigned task for
+  `ui/style.h` yet" reasoning as that module's own doc comment) rather than
+  making that module `pub` for one value.
+  Tests: ported every assertion in `tests/config_widget_test.cpp` (the `temp`
+  builtin-resolution-plus-override case, the `my_clock` unknown-name case, the
+  `keyboard_layout` nested-table-becomes-a-`tables`-entry case, the
+  string-map `readWidgetSettingValue` case and its non-string-value rejection,
+  and the automatic-vs-explicit `capsule_radius` cases through
+  `resolveWidgetBarCapsuleSpec`) plus one case with no C++ counterpart (a
+  non-string array element being dropped rather than rejecting, proving the
+  array/table asymmetry the module doc comment claims).
+  Pre-done review (rule 3, fresh subagent): independently confirmed toml++'s
+  exact-type accessors (`as_string()`/`as_integer()`/etc., used in the C++'s
+  outer dispatch) and `value<std::string>()` (used in the inner array/table
+  loops) both never coerce to/from `std::string`, matching the Rust `toml`
+  0.9.12 crate's `Value::as_str`/etc. the same way; independently verified all
+  13 seeded widgets and the three-way resolution branch line-by-line against
+  widget_config.cpp; independently confirmed the `&Config` -> `&HashMap`
+  narrowing is sound by grepping every use of `baseConfig`/`config` in both
+  C++ functions; confirmed every C++ test assertion has a matching Rust test;
+  ran `just check` and the crate's test suite independently (clean, 7 new
+  tests passing). Two doc-comment nitpicks, both fixed before committing: (1)
+  the module's non-coercion claim was attributed to `node.value<T>()` when the
+  C++'s actual outer dispatch uses the exact-type accessors instead (reworded
+  to name both correctly); (2) the array-drop test's doc comment implied it
+  ported a `config_widget_test.cpp` case via `getStringList` when no such case
+  exists there (confirmed via grep) — reworded to state plainly this is added
+  coverage, not a C++ port. Verdict PASS.
+Half-finished: nothing.
+Next step: task 2.1.3 (shell config — `ShellConfig` + its nested
+  `AnimationConfig`/`ShadowConfig`/`PanelConfig`/`LauncherConfig`/
+  `ScreenCornersConfig`/`MprisConfig`/`ScreenshotConfig`/`PrivacyConfig`,
+  `ShellSessionConfig`+`ShellSessionPowerConfig`, `ShellGreeterSyncConfig`,
+  `ShortcutConfig`, `SessionPanelActionConfig`, `DmenuEntryConfig`,
+  `LauncherProviderConfig`, `defaultSessionPanelActions`,
+  `defaultControlCenterShortcuts` — deserialize `[shell]` and its `[shell.*]`
+  subtables from `example.toml`). Continues the 2.1.x split; read
+  config_types.h's ShellConfig region and cross-check `serde(rename)` keys
+  against `config_schema.cpp` the same way 2.1.2 did.
