@@ -59,6 +59,7 @@ use std::collections::HashSet;
 use noctalia_core::color::{ColorRole, ColorSpec, color_spec_from_role};
 use serde::{Deserialize, Serialize};
 
+use crate::types::serde_support::{color_spec_serde, optional_color_spec_serde};
 use crate::types::widget_setting_value::{WidgetSettingValue, widget_setting_value_as};
 
 /// Placeholder mirrors of the handful of `ui/style.h` constants this module's
@@ -858,51 +859,6 @@ fn find_bytes(haystack: &[u8], needle: &[u8], from: usize) -> Option<usize> {
         .windows(needle.len())
         .position(|w| w == needle)
         .map(|i| i + from)
-}
-
-/// `ColorSpec` <-> config-string `serde(with = ...)` helper for required
-/// (non-`Option`) fields.
-mod color_spec_serde {
-    use noctalia_core::color::{
-        ColorSpec, color_spec_from_config_string, color_spec_to_config_string,
-    };
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S: Serializer>(spec: &ColorSpec, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(&color_spec_to_config_string(spec))
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<ColorSpec, D::Error> {
-        let raw = String::deserialize(deserializer)?;
-        color_spec_from_config_string(&raw, "").map_err(serde::de::Error::custom)
-    }
-}
-
-/// `Option<ColorSpec>` <-> config-string `serde(with = ...)` helper.
-mod optional_color_spec_serde {
-    use noctalia_core::color::{
-        ColorSpec, color_spec_from_config_string, color_spec_to_config_string,
-    };
-    use serde::{Deserialize, Deserializer, Serializer};
-
-    pub fn serialize<S: Serializer>(
-        spec: &Option<ColorSpec>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
-        match spec {
-            Some(s) => serializer.serialize_some(&color_spec_to_config_string(s)),
-            None => serializer.serialize_none(),
-        }
-    }
-
-    pub fn deserialize<'de, D: Deserializer<'de>>(
-        deserializer: D,
-    ) -> Result<Option<ColorSpec>, D::Error> {
-        let raw = Option::<String>::deserialize(deserializer)?;
-        raw.map(|s| color_spec_from_config_string(&s, ""))
-            .transpose()
-            .map_err(serde::de::Error::custom)
-    }
 }
 
 #[cfg(test)]

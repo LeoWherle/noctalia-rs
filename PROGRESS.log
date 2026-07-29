@@ -1360,3 +1360,104 @@ Next step: task 2.1.3 (shell config — `ShellConfig` + its nested
   subtables from `example.toml`). Continues the 2.1.x split; read
   config_types.h's ShellConfig region and cross-check `serde(rename)` keys
   against `config_schema.cpp` the same way 2.1.2 did.
+
+## 2026-07-29 (session 21, continued)
+Attempted: task 2.1.3 — shell config, continuing the 2.1.x split.
+Done: 2.1.3, flipped in MIGRATION_PLAN.md. New `noctalia-config::types::shell`
+  (`crates/noctalia-config/src/types/shell.rs`): `ShellConfig` + nested
+  `AnimationConfig`/`ShadowConfig`/`PanelConfig`/`LauncherConfig`
+  (+`DmenuConfig`)/`ScreenCornersConfig`/`MprisConfig`/`ScreenshotConfig`/
+  `PrivacyConfig`, `ShellSessionConfig`+`ShellSessionPowerConfig`,
+  `ShellGreeterSyncConfig`, `ShortcutConfig`, `SessionPanelActionConfig`,
+  `DmenuEntryConfig`, `LauncherProviderConfig`, `default_session_panel_actions`,
+  `default_control_center_shortcuts` — all field shapes and defaults
+  cross-checked against `config_schema.cpp`'s actual `field(&Struct::member,
+  "toml_key")`/`enumField`/`namedMap`/`arrayOf` registrations (the
+  authoritative TOML-key source, same method 2.1.2 used), not
+  `example.toml`'s comments or a mechanical camelCase-to-snake_case guess.
+  Two new cross-cutting discoveries, both handled by pulling forward only
+  the minimal piece needed (same pattern as 2.1.1's `ColorSpec` and 2.1.2's
+  `WidgetSettingValue`):
+  - Every enum-like C++ field (`PasswordMaskStyle`/`ClipboardAutoPasteMode`/
+    `ShadowDirection`/`PanelTransparencyMode`/`PanelPlacement`/
+    `SessionActionButtonVariant`) is kept as a plain `String` holding the
+    exact `enumField` TOML key (verified against each `kXxx[]` table's
+    *second* element, not the third i18n-label element) — same
+    "string-vs-enum validation is schema-engine territory" call 2.1.2 made
+    for `BarConfig::layer`/`position`. `panelCardOpacityForTransparencyMode`/
+    `detachedPanelBackgroundOpacityForTransparencyMode`/`ShadowDirectionOffset`
+    (needs a real enum to switch over, and their only consumer is
+    UI/rendering, a later phase) were deliberately left unported — not in
+    this task's plan text.
+  - `SessionPanelActionConfig::shortcut` needs `KeyChord`
+    (`src/core/input/key_chord.h`), owned wholesale by task 10.2 (`wl::seat`,
+    needs `xkbcommon` FFI for `parseKeyChordSpec`/`keyChordToString`) — too
+    heavy to pull forward whole mid config-data-model task. Pulled forward
+    only the `KeyChord` POD (`sym: u32, modifiers: u32`, no parsing logic)
+    into new `noctalia-core::input` (`crates/noctalia-core/src/input/
+    {mod,key_chord}.rs`); `shortcut` itself is `#[serde(skip)]` until 10.2's
+    string<->KeyChord bridge lands. `default_session_panel_actions` still
+    constructs real `KeyChord` values directly (bypassing string parsing
+    entirely, matching the C++'s own `KeyChord{.sym = XKB_KEY_1}` literals) —
+    the five keysym values were verified against this host's installed
+    `xkbcommon-keysyms.h` (`XKB_KEY_1..XKB_KEY_5` = `0x0031..0x0035`, the
+    ASCII digit codepoints) rather than pulled in via an `xkbcommon` crate
+    dependency for five constants. Updated MIGRATION_PLAN.md's 2.1.6 and
+    10.2 entries with notes pointing at the now-available `KeyChord` POD.
+    `DmenuEntryConfig::id`/`LauncherProviderConfig::name`/
+    `LauncherConfig::providers`/`DmenuConfig::entries` are `#[serde(skip)]`
+    (assembled via `config_schema.cpp`'s `namedMap`, task 2.3's job, same
+    "populated from the enclosing table-map key" pattern as `BarConfig::
+    name`/`monitor_overrides`) — `ShellSessionConfig::actions` is
+    deliberately NOT skipped (confirmed via config_schema.cpp: a genuine
+    `arrayOf`, a positional array, not a `namedMap`).
+  Also extracted `bar.rs`'s private `color_spec_serde`/
+  `optional_color_spec_serde` `serde(with = ...)` bridge modules into a new
+  shared `crates/noctalia-config/src/types/serde_support.rs` (byte-for-byte
+  move, `mod` -> `pub mod`, no behavior change) once `shell.rs`'s
+  `app_icon_color` field needed the exact same bridge a third
+  time-in-waiting — avoids tripling the copy before task 2.1.4/2.1.9 need it
+  again. (First attempt named the new file `color_spec_serde.rs` with an
+  inner `pub mod color_spec_serde` of the same name — clippy's
+  `module_inception` lint caught this; renamed the file to
+  `serde_support.rs`, keeping the inner module names unchanged.)
+  Tests: `[shell]`+subtables round-trip tests against the real `example.toml`
+  (top-level scalars, privacy/animation/shadow/panel/launcher/mpris
+  subtables — `session`/`screenshot`/`greeter_sync`/`screen_corners` aren't
+  populated in example.toml, confirmed via grep, so only covered by the
+  empty-table-uses-defaults test), a missing-subtables-use-cpp-defaults test,
+  an `app_icon_color` ColorSpec round-trip, the `password_style`/
+  `password_mask_style` short-key regression, the `type`-keyword field
+  round-trip for `ShortcutConfig`, exact-match tests for both default-list
+  functions (action names, keysym values, the `shutdown` variant override,
+  order), and skip-field tests proving `DmenuEntryConfig::id`/
+  `LauncherProviderConfig::name` ignore an "id"/"name" TOML key if one
+  happened to be present. New `noctalia_core::input::key_chord` test:
+  `KeyChord::default()` matches the C++'s in-class initializers.
+  Pre-done review (rule 3, fresh subagent): independently re-derived every
+  one of the six enum-key mappings, the `namedMap`-vs-`arrayOf` distinction
+  for `providers`/`dmenu.entries` vs `session.actions`, the full `ShellConfig`
+  default field-by-field (~40 fields) plus `PanelConfig` (~22 fields), the
+  claim that `password_style` is the *only* field/TOML-key mechanical-
+  snake-case mismatch in the whole struct, the `default_session_panel_actions`/
+  `default_control_center_shortcuts` exact match, the keysym constants against
+  this host's actual installed `xkbcommon-keysyms.h`, the `KeyChord` POD
+  against `key_chord.h`, and that the `serde_support.rs` extraction is a
+  genuine byte-for-byte no-op (diffed literally). Ran `just check` and
+  targeted `cargo test` independently (clean, all new tests passing, `bar.rs`
+  tests unaffected by the extraction). No blocking findings, no nitpicks.
+  Verdict PASS.
+Half-finished: nothing.
+Next step: task 2.1.4 (wallpaper, backdrop, lockscreen, dock —
+  `WallpaperMonitorOverride`/`WallpaperAutomationConfig`/`WallpaperConfig`/
+  `WallpaperFillMode`/`WallpaperTransition`/`WallpaperFavorite`,
+  `BackdropConfig`, `LockscreenConfig`, `DockConfig` — deserialize
+  `[wallpaper]`, `[backdrop]`, `[lockscreen]`, `[dock]`). `WallpaperFillMode`/
+  `WallpaperTransition` are real enums already used as typed `Vec` element
+  types in `WallpaperConfig::transitions` (not bare strings in a settings
+  map like `bar.rs`'s deferred layer/position strings) — check whether
+  `config_schema.cpp` treats them the same "string-vs-enum, schema engine's
+  job" way before deciding whether to keep 2.1.3's bare-`String` pattern or
+  introduce a real serde string-enum for these two specifically. Reuse
+  `serde_support.rs`'s `optional_color_spec_serde` for `WallpaperConfig::
+  fillColor`/`WallpaperMonitorOverride::fillColor`.

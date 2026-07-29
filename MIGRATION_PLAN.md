@@ -250,7 +250,7 @@ by design).
     `[bar.main]`/`[dock]`'s widget-lane entries from `example.toml`;
     capsule-group reconciliation gets its own unit tests (no C++ test
     exists — verified via grep).
-  - [ ] 2.1.3 Shell config — `ShellConfig` + nested `AnimationConfig`/
+  - [x] 2.1.3 Shell config — `ShellConfig` + nested `AnimationConfig`/
     `ShadowConfig`/`PanelConfig`/`LauncherConfig`/`ScreenCornersConfig`/
     `MprisConfig`/`ScreenshotConfig`/`PrivacyConfig`, `ShellSessionConfig`
     + `ShellSessionPowerConfig`, `ShellGreeterSyncConfig`,
@@ -258,6 +258,20 @@ by design).
     `LauncherProviderConfig`, `defaultSessionPanelActions`,
     `defaultControlCenterShortcuts`. Done: deserialize `[shell]` and its
     `[shell.*]` subtables from `example.toml`.
+    Note (session 21): discovered `SessionPanelActionConfig::shortcut` needs
+    `KeyChord` (`src/core/input/key_chord.h`), owned wholesale by task 10.2
+    (`wl::seat`, needs `xkbcommon` FFI for `parseKeyChordSpec`/
+    `keyChordToString`) — too heavy to pull forward whole mid config-data-model
+    task. Pulled forward only the `KeyChord` POD (`sym`/`modifiers`, no parsing
+    logic) into new `noctalia-core::input` (same "small shared POD" reasoning
+    as 2.1.1's `ColorSpec`); `shortcut` itself is `#[serde(skip)]` until 10.2's
+    string<->KeyChord bridge lands. Task 2.1.6 (`KeybindsConfig`) can reuse
+    `noctalia_core::input::KeyChord` directly. Also: every enum-like C++ field
+    here (`PasswordMaskStyle`/`ClipboardAutoPasteMode`/`ShadowDirection`/
+    `PanelTransparencyMode`/`PanelPlacement`/`SessionActionButtonVariant`) is a
+    plain `String` holding the `config_schema.cpp` `enumField` key, not a real
+    Rust enum — same "string-vs-enum validation is schema-engine territory"
+    call 2.1.2 made for `BarConfig::layer`/`position`.
   - [ ] 2.1.4 Wallpaper, backdrop, lockscreen, dock — `WallpaperMonitorOverride`/
     `WallpaperAutomationConfig`/`WallpaperConfig`/`WallpaperFillMode`/
     `WallpaperTransition`/`WallpaperFavorite`, `BackdropConfig`,
@@ -275,6 +289,12 @@ by design).
     `AccessibilityConfig`. Done: deserialize `[idle.behavior.*]`,
     `[keybinds]`, `[accessibility]`; `defaultKeybindSet` spot-checked
     against a few real `KeybindAction` values.
+    Note (session 21): `KeyChord` (the POD only — `sym`/`modifiers`, no
+    string parsing) already landed as `noctalia_core::input::KeyChord`,
+    pulled forward by task 2.1.3. `KeybindsConfig`'s `Vec<KeyChord>` fields
+    can use it directly; the TOML string<->`KeyChord` bridge itself is still
+    task 10.2's job (needs `xkbcommon` FFI), so plan for the same
+    `#[serde(skip)]` treatment 2.1.3 gave `SessionPanelActionConfig::shortcut`.
   - [ ] 2.1.7 System, audio, brightness, battery, nightlight, location,
     storage — `SystemConfig` + `MonitorConfig`, `AudioConfig`,
     `BrightnessConfig` + `BrightnessMonitorOverride`, `BatteryConfig` +
@@ -492,6 +512,13 @@ by design).
   `keyboard_layout_poll_source.h`, `key_repeat_poll_source.h` → `wl::seat` (pointer,
   keyboard w/ xkbcommon, touch, repeat timers on calloop). Done: nested-compositor
   test drives synthetic input (wtype/virtual pointer) and asserts events.
+  Note (session 21): `key_chord.h`'s `KeyChord` POD (`sym`/`modifiers`) already
+  landed as `noctalia_core::input::KeyChord`, pulled forward by task 2.1.3 for
+  `SessionPanelActionConfig::shortcut`/2.1.6's `KeybindsConfig`. What's left here
+  is `key_chord.cpp`'s real logic — `parseKeyChordSpec`/`keyChordToString`/
+  `keyChordDisplayLabel`/`keyChordMatches`/`isPrintableKey`/`isPlainPrintableKey`,
+  all `xkbcommon`-FFI-backed — plus wiring a TOML string<->`KeyChord` bridge back
+  into the 2.1.x config structs that currently `#[serde(skip)]` it.
 - [ ] 10.3 Layer surfaces — src: `layer_surface.{cpp,h}` → `wl::layer` (zwlr-layer-shell,
   anchors/margins/exclusive zones, fractional scale + viewport). Done: surface appears
   with correct geometry under nested compositor (screenshot compare via grim).
