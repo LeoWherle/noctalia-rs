@@ -4,6 +4,7 @@
 
 pub mod change_set;
 pub mod merge;
+pub mod migrations;
 pub mod schema;
 pub mod types;
 pub mod validate;

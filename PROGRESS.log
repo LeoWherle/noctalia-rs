@@ -1865,3 +1865,12 @@ Done: 2.5.3, flipped in MIGRATION_PLAN.md. Also flipped task 2.5 (all subtasks 2
   `just check` clean (220 tests green).
 Half-finished: nothing.
 Next step: task 2.6 (config migrations — `src/config/config_migrations.{cpp,h}` → `config::migrations` using `toml_edit`; port `tests/config_migration_test.cpp`).
+
+## 2026-07-29 (session 33)
+Attempted: task 2.6 — config migrations.
+Done: 2.6, flipped in MIGRATION_PLAN.md. New `noctalia-config::migrations` (`crates/noctalia-config/src/migrations.rs`), a line-by-line port of `src/config/config_migrations.{cpp,h}`:
+  All 8 config migrations (negative corner radii, custom_schedule opt-in, middle_click_opens_widget_settings gesture binding, widget enable_scroll / cycle_command / scroll_step / primary_click gesture bindings, custom_button commands, dead zone actions, lockscreen login_box deprecated settings), version gating (`stored_config_version`, `apply_pending_config_migrations`, `current_config_version`), legacy normalization (`normalize_legacy_config`), FNV-1a 64-bit issue fingerprinting (`legacy_config_issue_fingerprint`, `legacy_config_fingerprint_has_new_issues`), and reminder interval logic (`legacy_config_reminder_interval_elapsed`).
+  Tests: ported all 12 test cases from `tests/config_migration_test.cpp` verbatim as Rust unit tests in `migrations.rs`.
+  `just check` clean (232 tests green).
+Half-finished: nothing.
+Next step: task 2.7 (config export — `src/config/config_export.{cpp,h}` → `config::export`).

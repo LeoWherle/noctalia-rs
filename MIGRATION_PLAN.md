@@ -460,7 +460,7 @@ by design).
     queries). All genuinely need a live `ConfigService` (task 2.9) to exist —
     fold this into task 2.9's own scope rather than porting it standalone
     against nothing to call it on.
-- [ ] 2.6 Migrations — src: `config_migrations.{cpp,h}` → `config::migrations` using
+- [x] 2.6 Migrations — src: `config_migrations.{cpp,h}` → `config::migrations` using
   `toml_edit` (must preserve user comments/format exactly as C++ does — verify against
   C++ behavior first; if C++ rewrites the file, plain `toml` is fine). Done: port
   `tests/config_migration_test.cpp`.
