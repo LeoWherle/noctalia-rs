@@ -1,19 +1,26 @@
 //! Config data model (task 2.1 — see MIGRATION_PLAN.md for the 2.1.1-2.1.9 split).
 
 pub mod accessibility;
+pub mod audio;
 pub mod backdrop;
 pub mod bar;
+pub mod battery;
+pub mod brightness;
 pub mod desktop_widgets;
 pub mod dock;
 pub mod hotcorners;
 pub mod idle;
 pub mod keybinds;
+pub mod location;
 pub mod lockscreen;
+pub mod nightlight;
 pub mod notification;
 pub mod osd;
 pub mod serde_support;
 pub mod shadow;
 pub mod shell;
+pub mod storage;
+pub mod system;
 pub mod wallpaper;
 pub mod widget;
 pub mod widget_setting_value;

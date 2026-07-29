@@ -295,7 +295,7 @@ by design).
     can use it directly; the TOML string<->`KeyChord` bridge itself is still
     task 10.2's job (needs `xkbcommon` FFI), so plan for the same
     `#[serde(skip)]` treatment 2.1.3 gave `SessionPanelActionConfig::shortcut`.
-  - [ ] 2.1.7 System, audio, brightness, battery, nightlight, location,
+  - [x] 2.1.7 System, audio, brightness, battery, nightlight, location,
     storage — `SystemConfig` + `MonitorConfig`, `AudioConfig`,
     `BrightnessConfig` + `BrightnessMonitorOverride`, `BatteryConfig` +
     `BatteryDeviceWarningThreshold`, `NightLightConfig`, `LocationConfig`,

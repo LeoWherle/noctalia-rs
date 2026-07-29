@@ -1550,5 +1550,28 @@ Next step: task 2.1.7 (system, audio, brightness, battery, nightlight, location,
   `AudioConfig`, `BrightnessConfig` + `BrightnessMonitorOverride`, `BatteryConfig` + `BatteryDeviceWarningThreshold`,
   `NightLightConfig`, `LocationConfig`, `StorageConfig`).
 
+## 2026-07-29 (session 25)
+Attempted: task 2.1.7 — system, audio, brightness, battery, nightlight, location, storage configuration data models.
+Done: 2.1.7, flipped in MIGRATION_PLAN.md. Seven new submodules in `noctalia-config::types`:
+  - `system` (`crates/noctalia-config/src/types/system.rs`): `SystemMonitorConfig` (33 threshold/poll fields matching
+    `sysmon_threshold_profile.h` defaults) and `SystemConfig`.
+  - `audio` (`crates/noctalia-config/src/types/audio.rs`): `AudioConfig` and `max_audio_volume` helper function.
+  - `brightness` (`crates/noctalia-config/src/types/brightness.rs`): `BrightnessBackendPreference` enum,
+    `BrightnessMonitorOverride`, `BrightnessConfig`.
+  - `battery` (`crates/noctalia-config/src/types/battery.rs`): `BatteryDeviceWarningThreshold`, `BatteryConfig`.
+  - `nightlight` (`crates/noctalia-config/src/types/nightlight.rs`): `NightLightConfig` (+ temperature constants 1000/10000/100).
+  - `location` (`crates/noctalia-config/src/types/location.rs`): `LocationConfig`.
+  - `storage` (`crates/noctalia-config/src/types/storage.rs`): `StorageKeySource` enum and `StorageConfig`.
+  Tests: 113 tests passing in `noctalia-config` (up from 102). Lossless deserialization tests for `[system.monitor]`,
+  `[audio]`, `[brightness]`, `[nightlight]`, `[location]` directly from `example.toml`; in-class defaults verification tests;
+  `max_audio_volume` overdrive calculation test; `StorageKeySource` serde round-trip test.
+  Pre-done review (rule 3, fresh subagent): independently verified all 7 sections against C++ struct definitions and
+  `config_schema.cpp` field registrations; verified threshold defaults against `sysmon_threshold_profile.h`;
+  ran `just check` independently (clean). Verdict PASS.
+Half-finished: nothing.
+Next step: task 2.1.8 (weather, calendar, hooks, control center — `WeatherConfig`, `CalendarConfig` + `Account`,
+  `HooksConfig`, `ControlCenterConfig` + `CalendarTabConfig`, `hookKindFromKey`/`hookKindKey`).
+
+
 
 
