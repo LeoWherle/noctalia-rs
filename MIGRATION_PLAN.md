@@ -452,7 +452,7 @@ by design).
     C++ test exists) covering multi-file sorted merge, `[include].files`
     (file + directory forms), cycle detection, `autoload = false` opt-out, and
     an env-var-expanded include path.
-  - [ ] 2.5.4 Live override CRUD — the remaining ~1900 lines of
+  - [x] 2.5.4 Live override CRUD — the remaining ~1900 lines of
     `config_overrides.cpp`: every `ConfigService::*` method (bar/monitor
     override create/move/rename/delete, `setOverride`/`clearOverride`(s),
     plugin source/enable management, theme mode/scheme setters, dock/
@@ -475,7 +475,7 @@ by design).
   (XDG dirs, env overrides).
 
 ### Phase 3 — Theme engine (`crates/noctalia-theme`)
-- [ ] 3.1 Color core — src: `src/theme/color.{cpp,h}`, `contrast.{cpp,h}` →
+- [x] 3.1 Color core — src: `src/theme/color.{cpp,h}`, `contrast.{cpp,h}` →
   `theme::color`. Include the achromatic-HSV interpolation fix (commit 73c7c73c).
   Done: numeric golden tests vs C++ for parse/blend/contrast.
 - [ ] 3.2 Palettes — src: `builtin_palettes.*`, `fixed_palette.*`, `custom_palettes.*`,

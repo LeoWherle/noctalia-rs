@@ -7,3 +7,8 @@ license.workspace = true
 
 [lints]
 workspace = true
+
+[dependencies]
+noctalia-core = { path = "../noctalia-core" }
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2.0.19"

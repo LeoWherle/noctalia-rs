@@ -288,6 +288,11 @@ version = "0.1.0"
 [[package]]
 name = "noctalia-theme"
 version = "0.1.0"
+dependencies = [
+ "noctalia-core",
+ "serde",
+ "thiserror",
+]
 
 [[package]]
 name = "noctalia-ui"

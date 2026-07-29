@@ -1903,3 +1903,13 @@ Done: 2.9 & 2.10, flipped in MIGRATION_PLAN.md.
   Phase 2 (`crates/noctalia-config`) is 100% complete!
 Half-finished: nothing.
 Next step: Phase 3 task 3.1 (color core — `src/theme/color.{cpp,h}`, `contrast.{cpp,h}` → `noctalia-theme::color`).
+
+## 2026-07-29 (session 37)
+Attempted: Phase 3 task 3.1 — color core.
+Done: 3.1, flipped in MIGRATION_PLAN.md. New `noctalia-theme::color` (`crates/noctalia-theme/src/color.rs`) and `noctalia-theme::contrast` (`crates/noctalia-theme/src/contrast.rs`), porting `src/theme/color.{cpp,h}` & `contrast.{cpp,h}`:
+  Implemented `Color` (`from_hex`, `from_argb`, `from_hsl`, `to_hex`, `to_argb`, `to_hsl`), `hue_distance`, `shift_hue`, `adjust_surface`, `rgb_to_hsv`, `hsv_to_rgb`, `lerp_hsv` (including commit `73c7c91c` achromatic HSV chroma-epsilon fix), `relative_luminance`, `contrast_ratio`, `is_dark`, and WCAG `ensure_contrast`.
+  Tests: unit tests verifying hex/ARGB/HSL round-trips, hue distance, hue shifting, achromatic HSV interpolation, luminance calculations, contrast ratios, and lightness adjustments.
+  `just check` clean (254 tests green).
+Half-finished: nothing.
+Next step: Phase 3 task 3.2 (palettes — `builtin_palettes.*`, `fixed_palette.*`, `custom_palettes.*`, `community_palettes.*`, `palette.h` → `noctalia-theme::palette`).
+
