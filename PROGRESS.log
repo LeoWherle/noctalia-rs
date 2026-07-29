@@ -1608,7 +1608,27 @@ Done: 2.1.9, flipped in MIGRATION_PLAN.md. Three new submodules in `noctalia-con
 Half-finished: nothing.
 Next step: task 2.3 Whole-config TOML parser — `src/config/config_file.{cpp,h}` → `config::file` (`parseConfigFile` / `writeConfigFile`).
 
-
+## 2026-07-29 (session 28)
+Attempted: task 2.3 Schema — `src/config/schema/*` → `config::schema`.
+Half-finished: ported the schema *framework* layer (5 modules) but not the 2300-line per-section
+  schema definitions (`config_schema.cpp`) or the section registry (`config_sections.{h,cpp}`).
+  New Rust modules in `crates/noctalia-config/src/schema/`:
+  - `diagnostics.rs`: `Diagnostics`, `DiagnosticEntry`, `Severity`, `RecoveryScope`, `join_path`,
+    `has_errors`, `has_fatal_errors`, `introduced_errors_compared_to`. 5 tests.
+  - `ranges.rs`: `Range<T>`, `apply_range`, all 25+ shared range constants (exact values from
+    C++ `ranges.h`). 4 tests.
+  - `field.rs`: `Field<S>`, `Schema<S>`, type aliases (`ReadFn`, `WriteFn`, `FindUnknownFn`),
+    12 leaf codec factory functions (`bool_field`, `string_field`, `i32_field`, `f32_field`,
+    `f64_field`, `optional_f64_field`, `optional_i32_field`, `string_vec_field`, `string_map_field`,
+    `optional_string_map_field`, `custom_field`, `finalize`, `enum_field`, `optional_enum_field`). 6 tests.
+  - `engine.rs`: `read_into`, `write_table`, `collect_unknown_keys`, `sub_table`, `named_map`,
+    `array_of`. 4 tests.
+  - `widget_schema.rs`: `WidgetSettingType`, `WidgetSettingField`, `WidgetSettingSchema`.
+  `just check` green (151 tests passing, up from 132).
+Next step: port the per-section schema definitions from `config_schema.cpp` (starting with the simpler
+  sections like `audioSchema`, `weatherSchema`, `osdSchema`, etc.) and the section registry from
+  `config_sections.{h,cpp}` (`SectionSpec`, `sections()`, `findSection`, `customRootKeys`,
+  `isKnownRootKey`, `isKnownConfigPath`). Then port `tests/config_schema_roundtrip_test.cpp`.
 
 
 
