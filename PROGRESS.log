@@ -898,3 +898,110 @@ Next step: task 1.9 — time/clock formatting (src/time/*, 5 files →
   C++ outputs for fixed instants/locales — read src/time/* and its test(s)
   first to enumerate exactly which formatted outputs need golden-matching
   before picking jiff APIs.
+
+## 2026-07-29 (session 17)
+Attempted: task 1.9 — time/clock formatting, the last task of Phase 1.
+Done: 1.9, flipped in MIGRATION_PLAN.md (closes Phase 1 — Foundations).
+  New `noctalia-core::time` (crates/noctalia-core/src/time/{mod,strftime,
+  locale,zone,relative,service}.rs), a port of `src/time/time_format.{cpp,h}`
+  and `src/time/time_service.{cpp,h}`. `time_poll_source.h` has no port,
+  same reasoning as task 1.2's `FileWatchPollSource`: pure `PollSource`
+  glue with zero independent logic (verified by reading it), belongs with
+  calloop main-loop wiring whenever that's assembled.
+  Central design finding, made by prototyping directly against the real
+  `jiff` crate in a throwaway `/tmp` project inside the dev shell (not
+  guessed from memory): the C++ genuinely runs two independent formatting
+  engines — a `strftime`-compatible path (`formatStrftimeCompat`/
+  `formatStrftimeRaw`) that every real call site in `src/` reaches (grepped
+  every caller; all pass a format string containing `%`), and a
+  `std::vformat` chrono-formatter fallback that's unreachable by any of
+  them. This port implements only the first engine, and builds it on
+  `libc::strftime` directly (matching `core::log`'s existing raw-libc
+  idiom) rather than `jiff`'s own `strtime` formatter: verified (by reading
+  jiff 0.2.35's `fmt::strtime` source) that jiff's weekday/month names are
+  hardcoded English with no locale support, whereas real call sites depend
+  on locale-aware names — `widget_config.cpp:96`'s default clock format is
+  `"{:%a %d %b}"`, seeded into every profile's `date` widget. Using jiff
+  there would have silently anglicized clocks under non-English `LC_TIME`.
+  `jiff` ends up used in exactly one place, `zone.rs`'s `format_timezone_time`/
+  `is_valid_timezone` (architecture decision 5's actual justification: a
+  real IANA timezone database with correct historical DST rules) —
+  everything else in the module only ever needs system-local time
+  (`libc::localtime_r`, already used elsewhere in this crate) or pure
+  calendar math (`locale.rs`'s anchor-weekday computation, via
+  `jiff::civil::Date` with no timezone/tzdb involved at all). Confirmed
+  empirically that jiff prefers the system's `/usr/share/zoneinfo` (this
+  host's real Nix-provided tzdata) over its own bundled copy by default on
+  Linux, matching C++'s `std::chrono` zone source exactly — no extra
+  feature flags needed.
+  `format_timezone_time` computes offset/abbreviation/DST/wall-clock fields
+  from jiff's `Zoned`/`TimeZone::to_offset_info`, then populates a
+  `libc::tm` and renders through the same `libc::strftime`-based engine as
+  everything else (mirroring the C++'s own approach of manually populating
+  a `std::tm` from `year_month_day`/`hh_mm_ss`/zone info before calling its
+  own strftime bridge) — verified end-to-end against Pacific/Kiritimati
+  (fixed +14:00, no DST) producing byte-identical `"+1400|+14"` for `%z|%Z`
+  before writing the real module.
+  `_NL_TIME_FIRST_WEEKDAY`/`_NL_TIME_WEEK_1STDAY` (glibc-only
+  `<langinfo.h>` extension items `localeFirstDayOfWeek` needs) aren't
+  exposed by the `libc` crate (confirmed by grepping its source) — hardcoded
+  as `131176`/`131174` after hand-verifying against both a throwaway C
+  program linked against this host's real glibc AND (independently, by the
+  pre-done reviewer below) the actual installed glibc-dev header.
+  Two more divergences, both recorded in module doc comments: `format_file_time`
+  takes `Option<SystemTime>` instead of C++'s `file_time_type` +
+  sentinel-equality check (also drops the C++'s clock-domain conversion
+  dance entirely, since `SystemTime` already is wall-clock time);
+  `format_duration` takes `std::time::Duration` (unsigned) instead of
+  signed `chrono::seconds`, matching every real call site already being
+  non-negative.
+  Tests: `tests/time_format_test.rs` ports every assertion in
+  `tests/time_format_test.cpp` verbatim (epoch-token substitution,
+  isValidTimezone accept/reject, formatTimezoneTime offset+abbreviation and
+  day-of-year against Pacific/Kiritimati and UTC, formatDuration's four
+  cases) in one `i18n::init("en")`-then-assert function, kept as its own
+  integration-test binary (not crate unit tests) for the same reason as
+  `i18n_supported_languages_test.rs`: `i18n::init` writes the process-global
+  `Mutex<Service>` shared with every other unit test in this crate's single
+  test binary, and a first unit-test attempt at `format_file_time(None)`
+  proved this isn't hypothetical — it failed with `"!!time.file.unknown!!"`
+  because nothing had called `i18n::init` in that binary. Added coverage
+  with no C++ equivalent: every `formatDuration` day/hour/minute branch
+  combination, `formatTimeAgo`/`formatElapsedSince`'s just-now/minutes-ago/
+  hours-ago thresholds, `formatFileTime(None)`'s translated "Unknown". Every
+  other function (no i18n dependency) got ordinary unit tests inline in its
+  own submodule, including a `TimeService` test that sleeps past a real
+  second boundary to prove the tick callback fires exactly once per
+  boundary crossed.
+  Pre-done review (rule 3, fresh subagent): independently recomputed the
+  two glibc `nl_item` constants from this host's actual installed
+  `glibc-2.42-67-dev` headers (matched exactly); independently confirmed
+  jiff's strtime module hardcodes English names by reading its source;
+  independently grepped every real call site of every ported function and
+  confirmed the two-engine design claim; hand-traced the
+  `formatStrftimeWithUnixSeconds`→slice-based-scan rewrite through `%%`/
+  `%s`/other-specifier/trailing-lone-`%` cases for equivalence; verified
+  every `tm` field mapping and the `CString`/`tm_zone` lifetime claim in
+  `zone.rs`; hand-verified `poll_timeout_ms`'s nanosecond math at boundary
+  cases; confirmed `time_poll_source.h` really is content-free glue; ran
+  the full test suite and clippy independently (both clean). One nitpick,
+  fixed before committing: `mod.rs`'s doc comment overclaimed that "every
+  call site" passing `%` was verified, when only hardcoded C++ literals
+  were actually checked (real call sites also include user-configurable
+  format strings) — reworded to scope the claim correctly and note why the
+  narrow remaining case (no `%` AND no `{`) isn't a real divergence anyway
+  (both engines degrade to returning the string unchanged). A second
+  nitpick (one test asserts self-consistency against its own delegate
+  rather than an independent expected value, for a branch where no
+  independent expected value is knowable) was left as-is — already
+  documented honestly in its own doc comment. Verdict PASS.
+Half-finished: nothing.
+Next step: task 2.1 — Phase 2 (Config, crates/noctalia-config) begins.
+  Config data model: src/config/config_types.{cpp,h}, color_spec.h,
+  config_limits.h → serde structs in config::types. Done bar: deserialize
+  example.toml losslessly; defaults match C++ defaults (spot-check table).
+  Read config_types.h and find the repo's actual example.toml (or
+  equivalent fixture) first — task 1.9's confluence of "5 C++ files, 1
+  meaty test file" suggests checking for a similarly-scoped split before
+  diving in if config_types.{cpp,h} turns out to be another
+  process.cpp-sized file.

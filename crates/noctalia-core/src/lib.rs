@@ -11,5 +11,6 @@ pub mod log;
 pub mod process;
 pub mod profiling;
 pub mod random;
+pub mod time;
 pub mod timing;
 pub mod ui_phase;

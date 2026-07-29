@@ -203,7 +203,7 @@ by design).
   of which exist yet this early in the migration.
 - [x] 1.8 i18n — src: `src/i18n/*` (6 files) → `core::i18n`. Done: port
   `tests/i18n_language_tag_test.cpp` + `tests/i18n_supported_languages_test.cpp`.
-- [ ] 1.9 Time/clock formatting — src: `src/time/*` (5 files) → `core::time` on `jiff`.
+- [x] 1.9 Time/clock formatting — src: `src/time/*` (5 files) → `core::time` on `jiff`.
   Done: format-table test comparing against C++ outputs for fixed instants/locales.
 
 ### Phase 2 — Config (`crates/noctalia-config`)
