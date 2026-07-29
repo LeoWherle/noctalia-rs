@@ -1120,3 +1120,78 @@ Half-finished: nothing.
 Next step: unchanged from session 18 — task 2.1.1 (color primitives, see
   above). Phase 1 is now fully closed out including its own follow-up
   nitpicks; Phase 2 proper starts clean.
+
+Attempted: task 2.1.1 — color primitives, first real task of Phase 2.
+Done: new `noctalia-core::color` (`crates/noctalia-core/src/color/{mod,rgb,
+  spec,config_string}.rs`) plus a standalone `noctalia-core::limits`
+  (`crates/noctalia-core/src/limits.rs`) for `config_limits.h`'s 4
+  unrelated clipboard-history constants (documented in the module doc
+  comment why they're not under `color`: the plan bundles config_limits.h
+  into 2.1.1 wholesale, but nothing in it is color-related).
+  `color::rgb` ports `render/core/color.h`+`.cpp`: `Color`, `rgba`/
+  `rgb_hex`/`rgba_hex`/`hex` (4/5/7/9-digit forms)/`with_alpha`/`brighten`/
+  `lerp_color`/`hsv`/`hsl`/`rgb_to_hsv`/`lerp_hsv`/`relative_luminance`/
+  `readable_text_color_for_background`/`format_rgb_hex`/
+  `try_parse_hex_color`/`try_parse_css_color` (the last being the biggest
+  piece: rgb()/rgba()/hsl()/hsla(), legacy-comma and CSS-Color-4 space/
+  slash forms, percentage vs. number channels, deg/grad/rad/turn hue
+  units — hand-rolled since Rust has no `std::from_chars`-style "parse a
+  float prefix, return the remainder" primitive). `color::spec` ports the
+  non-`Palette` half of `ui/palette.h`/`.cpp`: `ColorRole`,
+  `ColorRoleToken`/`COLOR_ROLE_TOKENS` (16 entries), `ColorSpec`,
+  `color_role_from_token`/`color_role_token`/`color_spec_from_role`/
+  `fixed_color_spec`/`clear_color_spec` — deliberately excludes
+  `Palette`/`colorForRole`/`resolveColorSpec`/`isLightPalette`/the live
+  `palette` global/`lerpPalette`, all of which need the process-wide
+  palette singleton and stay task 3.1's job per the plan's own scoping.
+  `color::config_string` ports `colorSpecFromConfigString`/
+  `colorSpecToConfigString`, whose bodies actually live in
+  `config_types.cpp` (not `color_spec.cpp` — there isn't one), including
+  the opaque-vs-8-digit-hex branching at the `alpha >= 0.999` threshold
+  and the C++ quirk (faithfully reproduced, not fixed) that a role-based
+  `ColorSpec`'s `alpha` is silently dropped when serializing back to a
+  config string.
+  Divergences recorded deliberately in doc comments, not silently:
+  `is_c_isspace`/`trim_c_whitespace` implement C's exact `isspace` set
+  (space/\t/\n/\v/\f/\r) rather than Rust's `char::is_ascii_whitespace`
+  (narrower, no `\v`) or `str::trim` (wider, Unicode-aware) — matters
+  because `StringUtils::trim`/the inline `isspace` loops in `color.cpp`
+  this ports both use the C set.
+  Pre-done review (rule 3, fresh subagent): first pass found one real bug,
+  not just nitpicks — `parse_leading_f32` (the hand-rolled float-prefix
+  scanner behind `try_parse_css_color`'s channel/alpha/hue/percent
+  parsing) accepted a leading `+` on the mantissa (e.g. `"rgb(+128,0,0)"`),
+  which the reviewer confirmed by compiling a probe against this host's
+  actual `std::from_chars` diverges from: C++'s float grammar rejects a
+  leading `+` outside the exponent, so the whole component (and thus the
+  whole color) fails to parse in the C++ where the pre-fix Rust wrongly
+  succeeded. Fixed: only `-` is accepted as a mantissa sign now; the
+  exponent's own `+`/`-` (e.g. `"1e+3"`) is unaffected, matching C++
+  exactly per the same probe. Added regression tests for both the
+  now-rejected `+` forms and the still-accepted exponent form. The
+  reviewer's second, lower-severity finding — `std::from_chars` parses
+  `"nan"`/`"inf"`/`"infinity"` as valid floats and C++'s range checks
+  don't reject `NaN` (a NaN comparison is always false), so a channel
+  token of `"nan"` silently produces a `NaN` channel in the C++ — was
+  deliberately *not* replicated: nothing in this crate's ported call
+  sites reaches `try_parse_css_color` yet (`colorSpecFromConfigString`
+  only ever calls `try_parse_hex_color`), there's no C++ test locking the
+  NaN behavior in, and matching it would mean deliberately choosing to
+  let NaN into a `Color` for no functional benefit. Recorded as a
+  documented, tested divergence on `parse_leading_f32` itself rather than
+  silently differing. Every other reviewed item (bit-shift/mask hex
+  parsing, HSV/HSL sextant math and lerp_hsv's shortest-hue-path
+  wraparound, WCAG luminance formula, the 16-entry role-token table
+  diffed programmatically against `kColorRoleTokens`, ASCII-only
+  lowercase parity, the config-string round-trip including its
+  alpha-drop-on-role-serialize quirk, and the Palette-exclusion scope
+  boundary) came back PASS on independent re-derivation from the C++
+  source, not just re-reading prior doc comments. Re-ran
+  `nix develop .#rust -c just check` after the fix: clean (215 tests in
+  noctalia-core, up from 212 pre-task; fmt/clippy clean workspace-wide).
+Half-finished: nothing.
+Next step: task 2.1.2 (bar & widget settings). Per its own plan-text
+  note, it's keyed by `WidgetSettingValue` from `widget_setting_value.h`,
+  which is task 2.2's, not 2.1.2's — check PROGRESS.log/MIGRATION_PLAN.md
+  state before starting: either do 2.2 first, or pull just
+  `WidgetSettingValue` forward into 2.1.2 if 2.2 still hasn't landed.

@@ -217,7 +217,7 @@ by design).
   slice of `example.toml` losslessly + a defaults spot-check; only 2.1.9 (the
   root `Config` struct) exercises the whole file, since only then does every
   field exist.
-  - [ ] 2.1.1 Color primitives — src: `render/core/color.h`'s `Color`,
+  - [x] 2.1.1 Color primitives — src: `render/core/color.h`'s `Color`,
     `ui/palette.h`'s `ColorRole`/`ColorRoleToken`/`ColorSpec` (**not**
     `Palette`/scheme generation — that's task 3.1's full `theme::color`),
     `config/color_spec.{h,cpp}` (`colorSpecFromConfigString`/

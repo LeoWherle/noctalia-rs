@@ -4,9 +4,11 @@
 
 pub mod atomic_file;
 pub mod build_info;
+pub mod color;
 pub mod event_loop;
 pub mod files;
 pub mod i18n;
+pub mod limits;
 pub mod log;
 pub mod process;
 pub mod profiling;
