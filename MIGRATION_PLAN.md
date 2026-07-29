@@ -490,7 +490,7 @@ by design).
 - [x] 3.8 Theme CLI — src: `src/theme/cli.{cpp,h}` → deferred to Task 4.2 CLI binary (`clap` subcommands in Phase 4).
 
 ### Phase 4 — IPC & CLI (`crates/noctalia-ipc`, first real `noctalia-shell` binary code)
-- [ ] 4.1 IPC protocol + server — src: `src/ipc/*` (9 files) → `ipc::{proto,server}`
+- [x] 4.1 IPC protocol + server — src: `src/ipc/*` (9 files) → `ipc::{proto,server}`
   (unix socket, serde_json, calloop source). Done: ported IPC tests; C++ client binary
   can talk to the Rust server for one command (manual check noted in PROGRESS.log).
 - [ ] 4.2 CLI — src: `src/config/cli.{cpp,h}`, `src/theme/cli.*` → `clap` in the

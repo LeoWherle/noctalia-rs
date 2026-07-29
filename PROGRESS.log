@@ -1962,7 +1962,95 @@ Done: 3.6, 3.7, 3.8, flipped in MIGRATION_PLAN.md.
 Half-finished: nothing.
 Next step: Phase 4 task 4.1 (IPC protocol + server — `src/ipc/*` → `noctalia-ipc::{proto,server}`).
 
-
+## 2026-07-29 (session 43)
+Attempted: Phase 4 task 4.1 — IPC protocol + server, the first task outside Phases 1-3.
+Done: 4.1, flipped in MIGRATION_PLAN.md. New `noctalia-ipc` crate, porting all 9 files under
+  `src/ipc/*`:
+  - `service.rs`: `IpcService` (port of `ipc_service.{cpp,h}`) — handler registry
+    (`register_handler`/`register_cycle_handler`, replace-on-re-register, sorted `handlers()`
+    listing), `--help`/`-h` special-casing, the caller-cwd `\x1e`-prefix parse (absolute +
+    is-directory validated), `execute()`/`execute_parsed()`, the full `handleConnection` socket
+    read loop (EINTR-retry, WouldBlock-stop, too-large-response branch, trailing newline/CR strip
+    only when not EOF-terminated, empty-command early return), `InvocationScope` (nesting/
+    restore-on-drop via `RefCell::replace`), and socket lifecycle (`UnixListener::bind`,
+    non-blocking, unlink-on-drop). `client.rs`: `send()`, port of `ipc_client.cpp` (cwd-prefixing,
+    2s timeouts, write/shutdown/read sequencing, error-prefix exit code). `cli.rs`: `run_cli()`,
+    port of `cli.cpp` (`noctalia msg` entry point; takes the post-verb token slice rather than
+    full argv — wiring real process argv into it is task 4.2's job once the `clap` binary exists).
+    `poll_source.rs`: `register_ipc_poll_source`, port of `ipc_poll_source.h`, same calloop
+    `Generic`-over-`BorrowedFd` pattern as `noctalia-config`'s `register_config_poll_source`.
+    `invocation_context.rs`: `IpcInvocationContext`, port of `ipc_invocation_context.h` — the
+    C++'s forward-declared `wl_output*` becomes `Option<*mut c_void>`, carried but never
+    dereferenced (Wayland types aren't ported until Phase 9). `arg_parse.rs`: port of
+    `ipc_arg_parse.h`'s `splitWords`/`parseNormalizedOrPercent`, with the two `StringUtils`
+    functions they depend on (`trim`, `parseDotDecimal<float>`) reimplemented privately rather
+    than pulling forward all of `string_utils.h` (~30 unrelated functions, no owning task) — same
+    precedent as task 1.6.5's local `generate_uuid_v4`, to be deleted once a real task ports
+    `string_utils.h`. Verified byte-for-byte against the C++: the ASCII-only `std::isspace`
+    whitespace set (space/tab/LF/vertical tab/FF/CR — Rust's `u8::is_ascii_whitespace` excludes
+    vertical tab, so this needed a hand-written `is_c_isspace`, not a stdlib call), and
+    `std::from_chars`'s rejection of a leading `+` (unlike Rust's `f32::from_str`, which accepts
+    one) — both covered by dedicated tests.
+  Divergences recorded in module doc comments (all reviewed, all judged non-load-bearing):
+  `resolve_socket_path` de-duplicated into one `pub(crate)` function shared by `service`/`client`
+  instead of the C++'s byte-identical copy in each file; `UnixListener::bind` collapses the C++'s
+  three-syscall `socket()`/`bind()`/`listen()` sequence (and its three distinct warn messages)
+  into one generic "bind() failed" path; `HandlerInfo` owns `String`s rather than borrowing
+  `string_view`s into the registry (Rust's borrow checker would force an artificial lifetime on a
+  purely-diagnostic listing API); the socket command-body bytes, the client's
+  `cwd.to_string_lossy()`, and `resolve_socket_path`'s `std::env::var()` all assume UTF-8 where the
+  C++ passes raw bytes through (`String::from_utf8_lossy`/env-var-non-UTF8-treated-as-unset) —
+  unreachable in practice, every real caller composes commands from CLI argv or JSON `dump()`,
+  both always UTF-8; and `client.rs`'s `write_all` retries automatically on EINTR where the C++'s
+  hand-rolled `send()` loop treats EINTR as a hard failure (`ipc_client.cpp:73-82`) — accepted
+  deliberately (recorded, not silently improved-and-forgotten) rather than hand-rolling a raw
+  `libc::write` loop to reproduce what's very likely an incidental C++ omission, for a
+  signal-mid-a-short-local-write race that's already vanishingly rare.
+  Tests: `tests/ipc_service_test.rs` ports every assertion in `tests/ipc_service_test.cpp`
+  verbatim as one `#[test]` (matching the C++ test's single sequential `main()` — this crate's
+  only env-var-mutating test, no sibling in the same binary to race). `arg_parse.rs`/`cli.rs` get
+  hand-written unit tests (no C++ test exists for either — confirmed via grep) covering the
+  whitespace-set/leading-`+` divergence-adjacent behavior above, `parseNormalizedOrPercent`'s
+  four branches (bare fraction, dotless-as-percent, trailing `%`, decimal-outside-`[0,1]`-treated-
+  as-percent-too) including a custom `max_percent`, and `notification-show`'s exact `argc>=5`
+  arity threshold (ported as `args.len()>=3` against the post-verb slice) plus its JSON payload
+  shape — independently verified that nlohmann::json's default `std::map` object type and this
+  workspace's `serde_json` (no `preserve_order` feature anywhere in `cargo tree`) both sort keys
+  alphabetically, so `{"body":...,"summary":...}` matches without a documented divergence needed.
+  `just check` clean (325 tests green: 15 lib unit + 1 integration in `noctalia-ipc`, everything
+  else unchanged).
+  Manual check (the task's own Done bar, beyond the ported tests): compiled `src/ipc/ipc_client.cpp`
+  standalone with the project's real toolchain (`g++ 15.3.0` from the default `nix develop` shell —
+  not the Rust devshell's `clang` tools, which are formatting-only; confirmed via
+  `nix/devshell.nix`'s `inputsFrom = [ noctalia ]`) against a throwaway `main()` calling
+  `IpcClient::send("ping hello-from-cpp-client")`, and a scratch Rust example (`noctalia-ipc`'s
+  `examples/manual_check.rs`, deleted after use — not a permanent fixture, same convention as task
+  1.6.5's `systemd_manual_check`) that starts a real `IpcService`, registers a `ping` handler, and
+  polls `dispatch()`. Both pointed at an isolated `XDG_RUNTIME_DIR`/`WAYLAND_DISPLAY` (a temp dir,
+  not the real session socket). Result: the C++ client printed `pong:hello-from-cpp-client` and
+  exited 0; the Rust server logged `received from C++ client: "hello-from-cpp-client"` — confirms
+  wire compatibility end-to-end over the real Unix socket. (First pass of this check wasn't
+  recorded here before the pre-done review ran — the review correctly flagged that as unmet
+  against the task's own Done criterion despite the check having actually happened, since nothing
+  in the repo showed it; re-ran it and wrote it up properly this time.)
+  Pre-done review (rule 3, fresh subagent): full line-by-line parity check of `service.rs`/
+  `client.rs`/`cli.rs`/`arg_parse.rs` against all 9 C++ source files plus the relevant
+  `string_utils.h` slice, confirmed every `tests/ipc_service_test.cpp` assertion has an equally
+  strong Rust equivalent, ran `cargo clippy -p noctalia-ipc --all-targets -- -D warnings` and
+  `cargo fmt -p noctalia-ipc --check` independently (both clean), confirmed the `serde_json`
+  sorted-object claim via `cargo tree -e features`. Two real findings, both fixed above: the
+  missing manual-check writeup (blocking — redone and documented) and the undocumented EINTR
+  divergence in `client.rs`'s `write_all` (moderate — now recorded in the module doc comment and
+  here). One nitpick (the `cwd.to_string_lossy()`/env-var UTF-8 assumptions weren't mentioned
+  alongside the already-documented command-body UTF-8 divergence) — folded into the same doc
+  comment. Everything else — handler semantics, caller-cwd parsing, the read loop's every branch,
+  `InvocationScope` nesting, `buildHelp` formatting, socket lifecycle, `unsafe` SAFETY comment
+  coverage — verified clean.
+Half-finished: nothing.
+Next step: task 4.2 (CLI — src/config/cli.{cpp,h}, src/theme/cli.* → clap in the noctalia-shell
+  binary; wire noctalia-ipc::cli::run_cli's `noctalia msg` subcommand and noctalia-ipc::service
+  into that same binary as its first real main-loop wiring, since nothing currently links
+  noctalia-ipc — `config validate` + theme subcommands work end-to-end is the task's own bar).
 
 
 

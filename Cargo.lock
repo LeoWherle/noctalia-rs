@@ -748,6 +748,11 @@ version = "0.1.0"
 [[package]]
 name = "noctalia-ipc"
 version = "0.1.0"
+dependencies = [
+ "calloop",
+ "noctalia-core",
+ "serde_json",
+]
 
 [[package]]
 name = "noctalia-net"
