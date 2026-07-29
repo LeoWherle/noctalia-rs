@@ -1631,5 +1631,15 @@ Next step: port the per-section schema definitions from `config_schema.cpp` (sta
   `isKnownRootKey`, `isKnownConfigPath`). Then port `tests/config_schema_roundtrip_test.cpp`.
 
 
-
+## 2026-07-29 (session 29)
+Attempted: task 2.3 Schema — `src/config/schema/*` → `config::schema`.
+Done: Task 2.3, checked off in MIGRATION_PLAN.md.
+  - Implemented all per-section declarative schemas in `crates/noctalia-config/src/schema/config_schema.rs` matching `src/config/schema/config_schema.cpp`:
+    `audio`, `weather`, `osd`, `backdrop`, `lockscreen`, `system`, `nightlight`, `location`, `notification`, `dock`, `desktop_widgets`, `lockscreen_widgets`, `hot_corners`, `brightness`, `battery`, `control_center`, `plugins`, `calendar`, `keybinds`, `hooks`, `idle`, `wallpaper`, `templates`, `theme`, `shell`, `accessibility`, `storage`, and `bar`.
+  - Implemented `is_known_config_path` and `is_known_desktop_widget_path` path lookup functions.
+  - Implemented section registry in `crates/noctalia-config/src/schema/config_sections.rs` (`SectionSpec`, `sections()`, `find_section`, `CUSTOM_ROOT_KEYS`, `is_known_root_key`).
+  - Added `crates/noctalia-config/tests/config_schema_roundtrip_test.rs` validating section registry (24 section specs), section lookup, valid/invalid setting path resolution, and plugin source name rules.
+  - `just check` green (155 tests passing across workspace, 0 compiler/clippy warnings).
+Half-finished: nothing.
+Next step: task 2.4 Validation — `src/config/config_validate.{cpp,h}` → `config::validate`.
 

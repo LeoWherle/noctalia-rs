@@ -326,7 +326,7 @@ by design).
   `tests/config_widget_test.cpp`, which also exercises `resolveWidgetBarCapsuleSpec`
   (2.1.2's `noctalia-config::types::bar::resolve_widget_bar_capsule_spec`, already
   available).
-- [ ] 2.3 Schema — src: `src/config/schema/*` → `config::schema`. Done: port
+- [x] 2.3 Schema — src: `src/config/schema/*` → `config::schema`. Done: port
   `tests/config_schema_roundtrip_test.cpp` (roundtrip equality).
 - [ ] 2.4 Validation — src: `src/config/config_validate.{cpp,h}` → `config::validate`.
   Done: port `tests/config_validate/*` and `config_validate_cli_test.sh` cases as Rust

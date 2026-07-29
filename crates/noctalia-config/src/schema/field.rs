@@ -194,17 +194,23 @@ pub fn optional_f64_field<S: Send + Sync + 'static>(
     }
 }
 
-/// `field(std::optional<std::int32_t> Struct::*member, key)` (field.h:172-186).
+/// `field(std::optional<std::int32_t> Struct::*member, key, range)` (field.h:172-186).
 pub fn optional_i32_field<S: Send + Sync + 'static>(
     key: &'static str,
     get: fn(&S) -> Option<i32>,
     set: fn(&mut S, Option<i32>),
+    range: Option<Range<i64>>,
 ) -> Field<S> {
     Field {
         key,
         read: Box::new(move |tbl, out, _parent, _diag| {
             if let Some(toml::Value::Integer(v)) = tbl.get(key) {
-                set(out, Some(*v as i32));
+                let value = if let Some(ref r) = range {
+                    apply_range(*v, r)
+                } else {
+                    *v
+                };
+                set(out, Some(value as i32));
             }
         }),
         write: Box::new(move |tbl, s| {
