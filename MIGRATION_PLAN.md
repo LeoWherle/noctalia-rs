@@ -464,7 +464,7 @@ by design).
   `toml_edit` (must preserve user comments/format exactly as C++ does — verify against
   C++ behavior first; if C++ rewrites the file, plain `toml` is fine). Done: port
   `tests/config_migration_test.cpp`.
-- [ ] 2.7 Export — src: `config_export.{cpp,h}` → `config::export`. Done: byte-compare
+- [x] 2.7 Export — src: `config_export.{cpp,h}` → `config::export`. Done: byte-compare
   exported output with C++ binary for the same input config.
 - [ ] 2.8 State store — src: `state_store.{cpp,h}` → `config::state_store`. Done:
   ported round-trip + permission tests.
