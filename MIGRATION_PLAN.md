@@ -495,7 +495,59 @@ by design).
   can talk to the Rust server for one command (manual check noted in PROGRESS.log).
 - [ ] 4.2 CLI — src: `src/config/cli.{cpp,h}`, `src/theme/cli.*` → `clap` in the
   binary. Done: `--help`/subcommand snapshot matches documented C++ surface;
-  `config validate` + theme subcommands work end-to-end.
+  `config validate` + theme subcommands work end-to-end. Split into 4.2.1-4.2.7
+  (session-sized; `config export full`, `settings-count`, and `--list-templates`
+  each turned out to need real unported machinery — see each subtask). Check this
+  box once every subtask below is done and the full `--help` surface matches.
+  - [x] 4.2.1 CLI skeleton — clap-based `noctalia-shell` entry point (first real
+    `main.rs`, replacing the Phase-0 stub), top-level subcommand dispatch
+    (`msg`/`config`/`theme`), `noctalia msg` wired end-to-end to task 4.1's
+    `noctalia-ipc::cli::run_cli`. Done: `noctalia msg <cmd>` round-trips against a
+    real `noctalia-ipc::IpcService` (reuse the 4.1 manual-check pattern).
+  - [x] 4.2.2 config CLI: `validate` — src: `config_validate.cpp`'s `mergeSources`
+    (note: distinct from `config_service.cpp`'s similarly-named
+    `mergeUserConfigSources` — different bail semantics, do not conflate) +
+    `cli.cpp`'s `runValidate`. Done: port `tests/config_validate_cli_test.sh`'s
+    reachable cases (`generated-config` empty-dir success, `syntax-error.toml`)
+    against the real compiled binary; `warn-only.toml` and `invalid-timezone.toml`
+    stay unreachable until 2.4.2/2.4.3 land (blocked on the same Phase 13/14
+    widget/launcher registries) — note that explicitly rather than skipping
+    silently.
+  - [ ] 4.2.3 config CLI: `export` (merged + full) — `export merged` needs a new
+    `ConfigService::build_merged_user_config_from_sources` (port of
+    `config_service.cpp`'s `mergeUserConfigSources` + `buildMergedUserConfigFromSources`,
+    bail-on-first-error semantics, genuinely different from validate's
+    diagnostic-accumulating `mergeSources`). `export full` needs
+    `buildEffectiveConfigFromSources`, which needs a `parseConfigTable`/
+    `makeDefaultConfig` equivalent — blocked on closing a parity gap discovered
+    while scoping this task: `noctalia-config::service::ConfigService::load_all`
+    (task 2.9) is not a full `parseConfigTable` port (missing `[bar.*].order`
+    reordering, `[widget.*]` named-instance parsing, default-seeding-when-absent
+    for session actions/control-center shortcuts/plugin sources/idle behaviors,
+    and launcher `provider_prefix` resolution) — close that gap as part of this
+    subtask, in `load_all` itself (single source of truth) rather than a second
+    duplicate parser. Done: `config export full | config validate -` round-trips
+    with zero warnings against a config-file-free `XDG_CONFIG_HOME`, matching
+    `config_validate_cli_test.sh`'s export section.
+  - [ ] 4.2.4 config CLI: `settings-count` — needs
+    `shell::settings::settings_registry` (`buildSettingsRegistry`/`SettingEntry`,
+    3546-line `settings_registry.cpp`). Blocked on Phase 14 (settings window UI).
+  - [ ] 4.2.5 config CLI: `replay-report` — support-report reconstruction. Needs
+    `StringUtils::shellQuote` (small, pull forward minimally like 1.6.5's
+    `generate_uuid_v4`). Done: port the replay behavior (file+directory
+    reconstruction, `--flattened`, `--force`) with hand-written tests (no C++
+    test exists).
+  - [ ] 4.2.6 theme CLI: core generate/render — image path or `--theme-json` →
+    JSON output (stdout or `-o`), `--scheme`/`--dark`/`--light`/`--both`/
+    `--pure-black`, template rendering via `-r`/`-c`/`--builtin-config`. Builds
+    entirely on already-ported `noctalia-theme` (image/scheme/outputs/template).
+  - [ ] 4.2.7 theme CLI: `--list-templates` — needs a real builtin-template-catalog
+    reader (port of `builtin_templates.cpp`'s `loadBuiltinTemplateInfo`, reading
+    `assets/templates/builtin.toml`) and community-template listing (port of the
+    relevant slice of `community_templates.cpp`). `noctalia-theme::apply::
+    available_templates()` is currently a **hardcoded 3-entry stub**, not a real
+    port — discovered while scoping this task, not a new regression; replace it
+    here rather than building `--list-templates` on top of the stub.
 - [ ] 4.3 Hooks — src: `src/hooks/*` (4 files) → `shell::hooks`. Done: port
   `tests/hook_manager_test.cpp`, `tests/battery_hook_state_test.cpp`.
 

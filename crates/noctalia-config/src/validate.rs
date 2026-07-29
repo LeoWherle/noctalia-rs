@@ -32,18 +32,18 @@
 //!   (Phase 13/14/15 widget-type registries), `validateLauncherProviders` (task
 //!   14.1), `validatePluginSettings` (out of scope; scripting-only).
 //!
-//! Not ported at all in this task: `validateConfigSources`/`validateConfigFile`
-//! (task 2.4.5 — both call `mergeConfigWithIncludes`/`ConfigService::deepMerge`
-//! (task 2.5) and `normalizeLegacyConfig` (task 2.6) directly, neither of which
-//! exists yet) and the CLI-level `config_validate_cli_test.sh` (needs a real
-//! `noctalia config validate` binary and `config export full`, task 2.7).
+//! [`validate_config_sources`]/[`validate_config_file`] (task 2.4.5, [`merge_sources`]'s
+//! `mergeSources` port) landed later, once `mergeConfigWithIncludes`/`normalizeLegacyConfig`
+//! existed. The CLI-level `config_validate_cli_test.sh` is task 4.2.2's to satisfy (partially —
+//! the `warn-only.toml`/`invalid-timezone.toml` cases still need 2.4.2/2.4.3, same blockers as
+//! above); see MIGRATION_PLAN.md.
 
 use std::path::{Path, PathBuf};
 
 use crate::merge::merge_config_with_includes;
 use crate::migrations::{
-    LegacyConfigIssue, apply_pending_config_migrations, config_migrations, normalize_legacy_config,
-    stored_config_version,
+    K_CONFIG_VERSION_KEY, LegacyConfigIssue, apply_pending_config_migrations, config_migrations,
+    normalize_legacy_config, stored_config_version,
 };
 use crate::schema::config_schema::{bar_fields_schema, bar_monitor_override_schema};
 use crate::schema::config_sections::{SectionSpec, is_known_root_key, sections};
@@ -311,7 +311,7 @@ pub fn merge_sources(
                             config_migrations(),
                         );
                         sidecar.insert(
-                            "version".to_string(),
+                            K_CONFIG_VERSION_KEY.to_string(),
                             toml::Value::Integer(applied_version as i64),
                         );
                     }
@@ -335,7 +335,7 @@ pub fn merge_sources(
         }
     }
 
-    merged.remove("version");
+    merged.remove(K_CONFIG_VERSION_KEY);
     let mut issues = Vec::<LegacyConfigIssue>::new();
     normalize_legacy_config(&mut merged, &mut issues);
     for issue in issues {
@@ -727,5 +727,37 @@ mod tests {
         assert!(diag.has_errors());
 
         let _ = std::fs::remove_file(file);
+    }
+
+    /// Regression test for a real bug caught while porting the config CLI (task 4.2.2):
+    /// `merge_sources` used to strip a literal `"version"` key instead of the real
+    /// `config_version` key (`K_CONFIG_VERSION_KEY`) the migration system actually writes,
+    /// so a real (migrated) config-dir file's `config_version` key survived into the merged
+    /// table and got flagged as an unknown root section.
+    #[test]
+    fn merge_sources_strips_the_real_config_version_key_not_a_literal_version_key() {
+        let dir =
+            std::env::temp_dir().join(format!("noctalia-val-configversion-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let config_dir = dir.join("config");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        // A real config file written by the shell after migrations run always carries the
+        // current config_version at the root.
+        std::fs::write(
+            config_dir.join("00-bar.toml"),
+            "config_version = 1\n[bar.default]\nthickness = 30\n",
+        )
+        .unwrap();
+
+        let settings_path = dir.join("settings.toml");
+        let diag = validate_config_sources(&config_dir, &settings_path);
+
+        assert!(
+            !diag.entries.iter().any(|e| e.path == K_CONFIG_VERSION_KEY),
+            "config_version leaked into validation diagnostics: {:?}",
+            diag.entries
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

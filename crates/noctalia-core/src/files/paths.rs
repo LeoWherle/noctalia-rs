@@ -244,6 +244,41 @@ pub fn resolve_path(path: &str, base_dir: Option<&Path>) -> PathBuf {
     lexically_normal(&resolved)
 }
 
+/// Shared shape of `FileUtils::configDir`/`stateDir` (`src/util/file_utils.h:254-284`):
+/// `$NOCTALIA_<KIND>_HOME/noctalia`, else `$XDG_<KIND>_HOME/noctalia`, else
+/// `$HOME/<home_suffix>/noctalia`, else empty. The C++ has three independent copies of this
+/// shape (config/state/data); only the two this task needs (config, state) are ported, as one
+/// shared helper rather than two more copies — a source-organization simplification only, same
+/// precedent as `noctalia-ipc`'s deduplicated `resolve_socket_path`.
+fn xdg_style_dir(noctalia_var: &str, xdg_var: &str, home_suffix: &str) -> String {
+    if let Ok(v) = env::var(noctalia_var)
+        && !v.is_empty()
+    {
+        return format!("{v}/noctalia");
+    }
+    if let Ok(v) = env::var(xdg_var)
+        && !v.is_empty()
+    {
+        return format!("{v}/noctalia");
+    }
+    if let Ok(home) = env::var("HOME")
+        && !home.is_empty()
+    {
+        return format!("{home}/{home_suffix}/noctalia");
+    }
+    String::new()
+}
+
+/// Port of `FileUtils::configDir` (`src/util/file_utils.h:254-268`).
+pub fn config_dir() -> String {
+    xdg_style_dir("NOCTALIA_CONFIG_HOME", "XDG_CONFIG_HOME", ".config")
+}
+
+/// Port of `FileUtils::stateDir` (`src/util/file_utils.h:270-284`).
+pub fn state_dir() -> String {
+    xdg_style_dir("NOCTALIA_STATE_HOME", "XDG_STATE_HOME", ".local/state")
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -356,5 +391,73 @@ mod tests {
             resolve_path("/abs/foo.toml", Some(Path::new("/base"))),
             PathBuf::from("/abs/foo.toml")
         );
+    }
+
+    /// Saves and restores a real env var around a test that needs to control it, unlike the
+    /// synthetic `TEST_VAR_FOO`/`BAR` names above which are always safe to just remove.
+    struct EnvVarRestore {
+        name: &'static str,
+        previous: Option<std::ffi::OsString>,
+    }
+
+    impl EnvVarRestore {
+        fn unset(name: &'static str) -> Self {
+            let previous = env::var_os(name);
+            // SAFETY: guarded by ENV_MUTATION_LOCK for the caller's whole critical section.
+            unsafe { env::remove_var(name) };
+            Self { name, previous }
+        }
+    }
+
+    impl Drop for EnvVarRestore {
+        fn drop(&mut self) {
+            // SAFETY: guarded by ENV_MUTATION_LOCK for the caller's whole critical section.
+            unsafe {
+                match &self.previous {
+                    Some(value) => env::set_var(self.name, value),
+                    None => env::remove_var(self.name),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn config_dir_and_state_dir_follow_the_documented_precedence() {
+        let _guard = crate::process::test_support::ENV_MUTATION_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let _r1 = EnvVarRestore::unset("NOCTALIA_CONFIG_HOME");
+        let _r2 = EnvVarRestore::unset("XDG_CONFIG_HOME");
+        let _r3 = EnvVarRestore::unset("NOCTALIA_STATE_HOME");
+        let _r4 = EnvVarRestore::unset("XDG_STATE_HOME");
+        let _r5 = EnvVarRestore::unset("HOME");
+
+        // Nothing set at all: empty.
+        assert_eq!(config_dir(), "");
+        assert_eq!(state_dir(), "");
+
+        // HOME-relative fallback.
+        // SAFETY: guarded by ENV_MUTATION_LOCK.
+        unsafe { env::set_var("HOME", "/home/tester") };
+        assert_eq!(config_dir(), "/home/tester/.config/noctalia");
+        assert_eq!(state_dir(), "/home/tester/.local/state/noctalia");
+
+        // XDG_*_HOME takes priority over HOME.
+        // SAFETY: guarded by ENV_MUTATION_LOCK.
+        unsafe {
+            env::set_var("XDG_CONFIG_HOME", "/xdg/config");
+            env::set_var("XDG_STATE_HOME", "/xdg/state");
+        }
+        assert_eq!(config_dir(), "/xdg/config/noctalia");
+        assert_eq!(state_dir(), "/xdg/state/noctalia");
+
+        // NOCTALIA_*_HOME takes priority over XDG_*_HOME.
+        // SAFETY: guarded by ENV_MUTATION_LOCK.
+        unsafe {
+            env::set_var("NOCTALIA_CONFIG_HOME", "/noctalia/config");
+            env::set_var("NOCTALIA_STATE_HOME", "/noctalia/state");
+        }
+        assert_eq!(config_dir(), "/noctalia/config/noctalia");
+        assert_eq!(state_dir(), "/noctalia/state/noctalia");
     }
 }

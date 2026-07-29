@@ -2052,6 +2052,103 @@ Next step: task 4.2 (CLI — src/config/cli.{cpp,h}, src/theme/cli.* → clap in
   into that same binary as its first real main-loop wiring, since nothing currently links
   noctalia-ipc — `config validate` + theme subcommands work end-to-end is the task's own bar).
 
+## 2026-07-30 (session 44)
+Attempted: Phase 4 task 4.2 — CLI. Split before starting (session-sized; see below), then
+  completed subtasks 4.2.1 (CLI skeleton) and 4.2.2 (config CLI `validate`).
+Done: plan-split + 4.2.1 + 4.2.2, flipped in MIGRATION_PLAN.md.
+  Plan split: reading `src/config/cli.cpp` (591 lines) and `src/theme/cli.cpp` (603 lines)
+  before writing anything showed task 4.2 bundles several genuinely separate, session-sized
+  pieces with real, previously-invisible blockers: `settings-count` needs `shell::settings::
+  settings_registry` (a 3546-line, entirely-unported UI file, Phase 14); `export full` needs a
+  `parseConfigTable`/`makeDefaultConfig` equivalent, and `noctalia-config::service::
+  ConfigService::load_all` (task 2.9, already committed) turns out NOT to be a full
+  `parseConfigTable` port — missing `[bar.*].order` reordering, `[widget.*]` named-instance
+  parsing, default-seeding-when-absent (session actions/control-center shortcuts/plugin
+  sources/idle behaviors), and launcher `provider_prefix` resolution, discovered by reading
+  `config_service.cpp:1556-1701` line-by-line against `service.rs`'s `load_all`; `--list-templates`
+  needs a real builtin/community template catalog reader, and `noctalia-theme::apply::
+  available_templates()` (task 3.6) turns out to be a hardcoded 3-entry stub, not the real
+  `loadBuiltinTemplateInfo` port its doc comment implies. Replaced the single 4.2 checkbox with
+  4.2.1-4.2.7 in MIGRATION_PLAN.md, each carrying the specific blocker/dependency found. Both
+  newly-discovered gaps (load_all parity, available_templates stub) are recorded as blockers on
+  their owning subtasks (4.2.3, 4.2.7) rather than fixed in passing — real, but out of scope for
+  what this session could responsibly finish.
+  4.2.1: `noctalia-shell/src/main.rs` — first real binary code (was the Phase-0 stub), a
+  `clap`-derived `Cli`/`Command` (`Msg`/`Config`/`Theme`, each `trailing_var_arg` +
+  `allow_hyphen_values` + `disable_help_flag` so clap never intercepts `--help`/`-h` — verified
+  this actually holds, not just assumed, both via the pre-done review and independently: `msg
+  --help` is a real IPC protocol feature the *server* answers (`IpcService::execute` special-
+  cases it), not something this binary may ever swallow locally). `Msg` dispatches to task 4.1's
+  already-complete `noctalia_ipc::cli::run_cli`; `Config` to the new `noctalia_config::cli::
+  run_cli` (4.2.2); `Theme` and the no-subcommand case are explicit stubs pointing at their
+  owning future tasks. Added `clap` (workspace's first pure-CLI-framework dep, matching the
+  plan's own "clap subcommands in Phase 4" note — Phase A precedent: C++-only surface, the C++
+  hand-rolls argv parsing with no C library backing it, same category as toml/serde_json/zbus).
+  4.2.2: New `noctalia-config::cli` (`crates/noctalia-config/src/cli.rs`), porting `cli.cpp`'s
+  top-level `runCli` dispatch + `runValidate` + `useColor` + both help-text constants verbatim.
+  Only `validate` is wired; `export`/`settings-count`/`replay-report` fall through to the same
+  "unknown config command" error a typo would hit (documented in the module doc comment,
+  covered by a test), until 4.2.3-4.2.5 land. Added `noctalia-core::files::paths::config_dir`/
+  `state_dir` (minimal pull-forward of `FileUtils::configDir`/`stateDir` from
+  `src/util/file_utils.h:254-284` — same precedent as 2.5.3's `expand_user_path`/`resolve_path`).
+  Found and fixed a real, previously-undiscovered bug in already-committed code while building
+  this: `noctalia-config::validate::merge_sources` (task 2.4.5, session 39) stripped a literal
+  `"version"` TOML key instead of the real `config_version` key (`K_CONFIG_VERSION_KEY` in
+  `migrations.rs`) — verified against `config_validate.cpp:58-87`'s `mergeSources`, which uses
+  `kConfigVersionKey` ("config_version") both when writing the migrated version back and when
+  erasing it from the merged table. The bug meant a real (migrated) config file's own
+  `config_version` key would survive into the merged table and get flagged as an unknown root
+  section — latent until this session because no existing test's fixtures happened to set that
+  key. Fixed (now uses `K_CONFIG_VERSION_KEY` in both spots) with a regression test that fails
+  against the pre-fix code; also refreshed `validate.rs`'s module doc comment, which was stale
+  from before task 2.4.5 landed (claimed `validate_config_sources`/`validate_config_file` didn't
+  exist yet).
+  Tests: unit tests in `cli.rs` (help/no-args/unknown-command/argument-rejection paths,
+  empty-dir success, syntax-error failure, the diagnostic-counting/exit-code logic) and
+  `paths.rs` (config_dir/state_dir env-var precedence, all three tiers). New
+  `crates/noctalia-shell/tests/cli_test.rs` (added after the pre-done review flagged that no
+  test exercised the actual compiled binary / `main.rs`'s argv wiring, only `run_validate`/
+  `run_cli` called directly): four subprocess tests via `CARGO_BIN_EXE_noctalia-shell`, covering
+  the two reachable `tests/config_validate_cli_test.sh` cases (`generated-config` empty dir,
+  `syntax-error.toml`) plus `config --help` and `config export`'s not-yet-wired fallthrough.
+  `just check` clean (253 tests green: 244 in noctalia-config incl. 12 new in `cli.rs`, 4 new in
+  `noctalia-shell`, 221 in noctalia-core incl. 1 new in `paths.rs`, everything else unchanged).
+  Manual checks (both subtasks' own Done bars, beyond the automated tests): (1) 4.2.1's — the
+  same scratch-example pattern as task 4.1 (`noctalia-ipc/examples/manual_check.rs`, a real
+  `IpcService` with a `ping` handler, deleted after use), against an isolated
+  `XDG_RUNTIME_DIR`/`WAYLAND_DISPLAY`: `noctalia-shell msg ping hello-from-noctalia-msg` printed
+  `pong:hello-from-noctalia-msg` and exited 0, server logged the same string received — confirms
+  `main.rs`'s `Command::Msg` wiring round-trips over a real socket, not just against
+  `run_cli` directly. (2) 4.2.2's — ran the compiled `target/debug/noctalia-shell config
+  validate` from the repo root against the real `tests/config_validate/generated-config` (empty
+  dir) and `tests/config_validate/syntax-error.toml` fixtures the C++ shell test uses; output
+  and exit codes matched what `tests/config_validate_cli_test.sh` asserts for those two cases
+  exactly (now also covered by `cli_test.rs`, so this is no longer manual-only). Did NOT attempt
+  `warn-only.toml`/`invalid-timezone.toml` or the `export full` round-trip — both genuinely
+  blocked (2.4.2/2.4.3; task 4.2.3), not skipped by oversight.
+  Pre-done review (rule 3, fresh subagent): independently rebuilt and ran the binary (`msg
+  --help`/`-h`, `config --help`, both validate fixtures) to verify the clap-help-passthrough
+  claim and the output-text claims rather than trusting the session's own report; cross-checked
+  the `merge_sources` fix against `config_validate.cpp` directly; grepped the whole config crate
+  for the same `"version"`-vs-`config_version` mistake elsewhere (none found); compiled a small
+  C++ probe against this project's real toolchain to confirm `std::filesystem::status`'s
+  `ec`-on-missing-path behavior before accepting the nonexistent-path branch as a non-divergence;
+  ran `just check` and `cargo tree -i openssl-sys` independently. Two real findings, both fixed
+  above: PROGRESS.log hadn't been written yet at review time (blocking per rule 2 — this entry);
+  no test exercised the real compiled binary (moderate — `cli_test.rs` added). One nitpick fixed:
+  `Command::Theme`'s discarded `args` field now has a comment explaining it's a deliberate stub,
+  not an oversight.
+Half-finished: nothing (4.2.3-4.2.7 are untouched, tracked as their own MIGRATION_PLAN.md
+  checkboxes, not partial work).
+Next step: task 4.2.3 (config CLI `export` — start with `export merged`'s
+  `build_merged_user_config_from_sources`, bail-on-first-error, distinct from `validate`'s
+  diagnostic-accumulating `merge_sources`; `export full` additionally needs closing the
+  `ConfigService::load_all`/`parseConfigTable` parity gap recorded above — do that inside
+  `load_all` itself, single source of truth, not a second parser). After 4.2.3: 4.2.4
+  (settings-count, blocked — check whether Phase 14 has landed first) and 4.2.5 (replay-report)
+  are independent of each other and of the theme-CLI subtasks (4.2.6/4.2.7), so whichever a
+  future session picks up first is fine.
+
 
 
 
