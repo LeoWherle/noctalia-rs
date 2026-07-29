@@ -1461,3 +1461,45 @@ Next step: task 2.1.4 (wallpaper, backdrop, lockscreen, dock —
   introduce a real serde string-enum for these two specifically. Reuse
   `serde_support.rs`'s `optional_color_spec_serde` for `WallpaperConfig::
   fillColor`/`WallpaperMonitorOverride::fillColor`.
+
+## 2026-07-29 (session 22)
+Attempted: task 2.1.4 — wallpaper, backdrop, lockscreen, dock configuration data models.
+Done: 2.1.4, flipped in MIGRATION_PLAN.md. Four new submodules in `noctalia-config::types`:
+  - `wallpaper` (`crates/noctalia-config/src/types/wallpaper.rs`): `WallpaperFillMode`,
+    `WallpaperTransition`, `WallpaperAutomationOrder`, `PaletteSource`, `ThemeMode`
+    enums (`#[serde(rename_all = "lowercase")]`); `WallpaperAutomationConfig`,
+    `WallpaperMonitorOverride`, `WallpaperConfig` (+ `default_wallpaper_transitions`),
+    `WallpaperFavorite`. TOML keys cross-checked against `config_schema.cpp:722-756, 1495-1514`:
+    `transition` (singular) renames `transitions: Vec<WallpaperTransition>`;
+    `transition_duration` renames `transition_duration_ms: f32`; `match` renames
+    `match_: String`; `monitor_overrides` is `#[serde(skip)]` (populated from
+    `[wallpaper.monitor.<name>]` table map during whole-config assembly in task 2.3).
+    Updated `optional_color_spec_serde::deserialize` in `serde_support.rs` with
+    `.filter(|s| !s.is_empty())` so an empty TOML string (`fill_color = ""`, as seen in
+    `example.toml:109`) deserializes to `None` matching `config_schema.cpp`'s
+    `colorSpecField` semantics rather than failing on an empty color string. Added
+    `serde_json = "1.0"` to `dev-dependencies` in `noctalia-config/Cargo.toml` for
+    bare enum-string round-trip testing.
+  - `backdrop` (`crates/noctalia-config/src/types/backdrop.rs`): `BackdropConfig`
+    (enabled, blur_intensity: 0.5, tint_intensity: 0.3).
+  - `lockscreen` (`crates/noctalia-config/src/types/lockscreen.rs`): `LockscreenConfig`
+    (enabled: true, fingerprint: true, allow_empty_password: false, blurred_desktop: false,
+    blur_intensity: 0.5, tint_intensity: 0.3, wallpaper, monitors) + `is_lock_screen_enabled`.
+  - `dock` (`crates/noctalia-config/src/types/dock.rs`): `DockEdge`, `DockLauncherPosition`
+    enums; `DockConfig` (all 37 fields matching in-class defaults in `config_types.h:560-605`,
+    `border` uses `color_spec_serde` with `ColorRole::Outline` at alpha 1.0) + `is_auto_hide_enabled`.
+  Tests: 81 tests passing in `noctalia-config` (up from 71). Lossless deserialization tests for
+  `[wallpaper]`, `[backdrop]`, `[lockscreen]`, `[dock]` directly from `example.toml`; in-class
+  defaults verification tests; method tests (`is_lock_screen_enabled`, `is_auto_hide_enabled`);
+  serde round-trip test for wallpaper enums.
+  Pre-done review (rule 3, fresh subagent): independently verified all 4 top-level sections in
+  `example.toml` against C++ struct definitions and `config_schema.cpp` field registrations;
+  confirmed `transition` vs `transitions` and `transition_duration` vs `transition_duration_ms` TOML key
+  mappings; verified `optional_color_spec_serde` empty string filter behavior; ran `just check`
+  independently (clean). Verdict PASS.
+Half-finished: nothing.
+Next step: task 2.1.5 (desktop widgets, OSD, notifications — `DesktopWidgetsGridState`/
+  `DesktopWidgetState`/`DesktopWidgetsConfig`, `LockscreenWidgetsConfig`, `OsdKindsConfig`/
+  `OsdConfig`, `NotificationConfig`/`NotificationFilterConfig`, `ShadowDirectionOffset`).
+  Continues the 2.1.x split. Read `config_types.h` and `config_schema.cpp` for these sections first.
+

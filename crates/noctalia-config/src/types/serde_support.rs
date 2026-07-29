@@ -43,7 +43,8 @@ pub mod optional_color_spec_serde {
         deserializer: D,
     ) -> Result<Option<ColorSpec>, D::Error> {
         let raw = Option::<String>::deserialize(deserializer)?;
-        raw.map(|s| color_spec_from_config_string(&s, ""))
+        raw.filter(|s| !s.is_empty())
+            .map(|s| color_spec_from_config_string(&s, ""))
             .transpose()
             .map_err(serde::de::Error::custom)
     }

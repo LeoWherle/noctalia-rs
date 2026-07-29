@@ -272,7 +272,7 @@ by design).
     plain `String` holding the `config_schema.cpp` `enumField` key, not a real
     Rust enum — same "string-vs-enum validation is schema-engine territory"
     call 2.1.2 made for `BarConfig::layer`/`position`.
-  - [ ] 2.1.4 Wallpaper, backdrop, lockscreen, dock — `WallpaperMonitorOverride`/
+  - [x] 2.1.4 Wallpaper, backdrop, lockscreen, dock — `WallpaperMonitorOverride`/
     `WallpaperAutomationConfig`/`WallpaperConfig`/`WallpaperFillMode`/
     `WallpaperTransition`/`WallpaperFavorite`, `BackdropConfig`,
     `LockscreenConfig`, `DockConfig`. Done: deserialize `[wallpaper]`,
