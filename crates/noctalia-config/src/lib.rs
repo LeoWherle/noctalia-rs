@@ -2,6 +2,7 @@
 //!
 //! Skeleton crate — contents arrive with its migration phase; see MIGRATION_PLAN.md.
 
+pub mod change_set;
 pub mod merge;
 pub mod schema;
 pub mod types;

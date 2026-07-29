@@ -1796,3 +1796,63 @@ Next step: task 2.5.2 (config change-set computation —
   `crates/noctalia-config/src/types/bar.rs`'s actual field types line-by-line,
   not from memory.
 
+## 2026-07-29 (session 31, continued)
+Attempted: task 2.5.2 — config change-set computation.
+Done: 2.5.2, flipped in MIGRATION_PLAN.md. New `noctalia-config::change_set`
+  (`crates/noctalia-config/src/change_set.rs`), a port of the pure comparison-
+  logic slice of `config_overrides.cpp` (lines 29-413, 712-743):
+  `vector_equal`, `numeric_widget_setting`/`widget_setting_equal` (int/double
+  coercion — `Int(5) == Float(5.0)`; non-numeric pairs fall back to
+  `WidgetSettingValue`'s own derived `PartialEq`, which already requires a
+  matching variant, same as the C++'s `a.index() != b.index()` + `std::visit`
+  exact-match), `widget_settings_equal`, `plugins_config_equal`,
+  `desktop_widget_equal`/`desktop_widgets_config_equal`/
+  `lockscreen_widgets_config_equal`, `bar_base_config_equal`,
+  `apply_monitor_override_for_comparison` (resolves all ~40
+  `BarMonitorOverride` fields onto a cloned `BarConfig`, incl. the
+  radius-group-then-per-corner sequencing and the f64-to-f32 clamped casts on
+  `widget_capsule_padding`/`widget_capsule_opacity` vs. the no-cast
+  `widget_capsule_radius`), `bar_monitor_override_equal`/`bar_config_equal`,
+  `widget_config_equal`/`widget_map_equal`, `config_equal` (override-
+  effectiveness equality — every section via derived `PartialEq` except the
+  ones needing coercion/resolution), and `compute_config_change_set` (all 28
+  `ConfigChangeSet` fields).
+  No C++ test exists for any of this (grep confirms zero references under
+  `tests/`) — done bar is hand-written unit tests: numeric coercion (both
+  directions), non-numeric variant mismatch, plugin-settings coercion,
+  desktop-widget settings coercion, bar-base-config ignoring monitor
+  overrides, the radius-group-then-per-corner override resolution, capsule
+  padding/radius/opacity clamping, dead-zone wholesale replacement, resolved-
+  bar comparison (two differently-shaped overrides resolving to the same
+  effective bar), and `compute_config_change_set` flagging only the actually-
+  changed section (incl. that adding a monitor override which only makes
+  explicit what the bar already defaults to doesn't flag `bars` as changed).
+  Pre-done review (rule 3, fresh subagent) found one real, blocking bug in
+  `apply_monitor_override_for_comparison` (the highest-risk function in the
+  file): a first draft applied `ovr.layer` onto `resolved.layer`, but the real
+  C++ function (`config_overrides.cpp:161-296`) never touches `layer` at all
+  (`grep -i layer config_overrides.cpp` — zero hits — despite both
+  `BarMonitorOverride::layer` and `BarConfig::layer` existing) — silently
+  "improving" on a real C++ omission instead of matching it, violating the
+  ground rules' "match C++ behavior over improving it, divergences must be
+  deliberate and recorded" rule. Fixed: removed the erroneous block, added a
+  doc comment recording the omission as verified-not-assumed, and added
+  `apply_monitor_override_never_applies_layer_matching_the_cpp_omission` (a
+  regression test that would have failed against the buggy version). A
+  second, focused fresh-context pass re-confirmed the C++ omission
+  independently (re-grepped and re-read the function body directly), reasoned
+  through + ran the new test, re-verified every other `BarMonitorOverride`
+  field is still applied identically to the C++ (nothing else broken by the
+  fix), and re-ran `just check` clean. Verdict PASS.
+Half-finished: nothing.
+Next step: task 2.5.3 (include-aware directory merge —
+  `mergeConfigWithIncludes`, `crates/noctalia-config/src/config_merge.cpp`'s
+  file-scanning + `[include]` expansion, overlaying via 2.5.1's `deep_merge`).
+  Needs `FileUtils::expandEnvVars`/`resolvePath` pulled forward from
+  `src/util/file_utils.h` — minimal piece only (that header also has XDG-base-
+  dir expansion and private-permission helpers unrelated to this task; a
+  future task owns porting the rest as its callers need it). Test against real
+  temp directories: multi-file sorted merge, `[include].files` (file +
+  directory forms), cycle detection, `autoload = false` opt-out, an env-var-
+  expanded include path.
+

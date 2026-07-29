@@ -424,7 +424,7 @@ by design).
     (no C++ test exists — grep confirms zero references to `deepMerge` under
     `tests/`) covering nested-table recursion, array wholesale-replace,
     table-over-non-table and non-table-over-table replacement.
-  - [ ] 2.5.2 Config change-set computation — `computeConfigChangeSet`
+  - [x] 2.5.2 Config change-set computation — `computeConfigChangeSet`
     (`config_overrides.cpp:712`) + its equality helpers (`vectorEqual`,
     `widgetSettingEqual`/`widgetSettingsEqual` with int/double coercion,
     `pluginsConfigEqual`, `desktopWidgetEqual`/`desktopWidgetsConfigEqual`/
