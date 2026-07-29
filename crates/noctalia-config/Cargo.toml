@@ -9,6 +9,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+calloop = "0.14.4"
 noctalia-core = { path = "../noctalia-core" }
 serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.19"

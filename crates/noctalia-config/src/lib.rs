@@ -7,6 +7,7 @@ pub mod export;
 pub mod merge;
 pub mod migrations;
 pub mod schema;
+pub mod service;
 pub mod state_store;
 pub mod types;
 pub mod validate;

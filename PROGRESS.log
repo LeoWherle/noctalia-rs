@@ -1888,5 +1888,18 @@ Done: 2.8, flipped in MIGRATION_PLAN.md. New `noctalia-config::state_store` (`cr
   Implemented `StateStore` struct and helper functions (`valid_state_identifier`, `secure_state_file` applying `0o600` permissions on creation and load), `load`, `bool_value`, `string_value`, `set_bool`, `set_string`, `clear_owner`, using `write_text_file_atomic` with explicit `0o600` mode and symlink preservation.
   Tests: ported test cases from `tests/state_store_test.cpp` covering bool/string round-trips, owner clearing, invalid identifier rejection, `0o600` owner-only permissions on create & load tightening, wrong type rejection, and symlink target preservation.
   `just check` clean (240 tests green).
-Half-finished: nothing.
 Next step: task 2.9 (config service & polling — `src/config/config_service.{cpp,h}`, `config_poll_source.h` → `config::service`).
+
+## 2026-07-29 (session 36)
+Attempted: task 2.9 (config service & polling) and task 2.10 (path resolution).
+Done: 2.9 & 2.10, flipped in MIGRATION_PLAN.md.
+  Task 2.9: `noctalia-config::service` (`crates/noctalia-config/src/service.rs`), porting `src/config/config_service.{cpp,h}` & `src/config/config_poll_source.h`:
+    Implemented `ConfigService` (`load_all`, `deep_merge`, `force_reload`, `check_reload`, `add_reload_callback`, `set_override_value`, `clear_override`), using `FileWatcher` for inotify watching and `compute_config_change_set` for diffing.
+    Implemented `register_config_poll_source` binding `service_fd` into calloop event loop via `Generic` source.
+    Tests: unit tests verifying table deep-merge, override application + reload callback dispatch, and inotify file touch reload.
+  Task 2.10: Path resolution tests in `crates/noctalia-config/src/schema/config_schema.rs`:
+    Ported all test cases from `tests/config_path_resolution_test.cpp` verifying known vs unknown override path resolution for leaf, subtable, enum, named-map, and bar/monitor override paths.
+  `just check` clean (244 tests green).
+  Phase 2 (`crates/noctalia-config`) is 100% complete!
+Half-finished: nothing.
+Next step: Phase 3 task 3.1 (color core — `src/theme/color.{cpp,h}`, `contrast.{cpp,h}` → `noctalia-theme::color`).

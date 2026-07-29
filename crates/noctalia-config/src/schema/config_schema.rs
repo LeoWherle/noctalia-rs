@@ -3856,3 +3856,172 @@ pub fn is_known_config_path(path: &[String]) -> bool {
     }
     unknown.is_empty()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn path(segs: &[&str]) -> Vec<String> {
+        segs.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    #[test]
+    fn config_path_resolution() {
+        // Known override paths
+        assert!(is_known_config_path(&path(&["accessibility", "ui_scale"])));
+        assert!(is_known_config_path(&path(&[
+            "shell",
+            "animation",
+            "speed"
+        ])));
+        assert!(is_known_config_path(&path(&["shell", "panel_anchor_bar"])));
+        assert!(is_known_config_path(&path(&[
+            "shell",
+            "panel",
+            "control_center_placement"
+        ])));
+        assert!(is_known_config_path(&path(&["shell", "shadow", "alpha"])));
+        assert!(is_known_config_path(&path(&[
+            "shell",
+            "screen_corners",
+            "size"
+        ])));
+        assert!(is_known_config_path(&path(&[
+            "shell",
+            "screenshot",
+            "directory"
+        ])));
+        assert!(is_known_config_path(&path(&[
+            "system",
+            "monitor",
+            "cpu_poll_seconds"
+        ])));
+        assert!(is_known_config_path(&path(&["theme", "mode"])));
+        assert!(is_known_config_path(&path(&[
+            "theme",
+            "templates",
+            "enable_builtin_templates"
+        ])));
+        assert!(is_known_config_path(&path(&[
+            "wallpaper",
+            "automation",
+            "interval_seconds"
+        ])));
+        assert!(is_known_config_path(&path(&["wallpaper", "fill_color"])));
+        assert!(is_known_config_path(&path(&["dock", "icon_size"])));
+        assert!(is_known_config_path(&path(&["dock", "radius_top_left"])));
+        assert!(is_known_config_path(&path(&["desktop_widgets", "enabled"])));
+        assert!(is_known_config_path(&path(&[
+            "desktop_widgets",
+            "grid",
+            "cell_size"
+        ])));
+        assert!(is_known_config_path(&path(&[
+            "desktop_widgets",
+            "widget_order"
+        ])));
+        assert!(is_known_config_path(&path(&[
+            "desktop_widgets",
+            "widget",
+            "clock1",
+            "type"
+        ])));
+        assert!(is_known_config_path(&path(&[
+            "desktop_widgets",
+            "widget",
+            "clock1",
+            "settings",
+            "format"
+        ])));
+        assert!(is_known_config_path(&path(&["osd", "scale"])));
+        assert!(is_known_config_path(&path(&[
+            "notification",
+            "background_opacity"
+        ])));
+        assert!(is_known_config_path(&path(&[
+            "battery",
+            "warning_threshold"
+        ])));
+        assert!(is_known_config_path(&path(&[
+            "calendar",
+            "refresh_minutes"
+        ])));
+        assert!(is_known_config_path(&path(&[
+            "calendar", "account", "icloud", "provider"
+        ])));
+        assert!(is_known_config_path(&path(&[
+            "control_center",
+            "calendar",
+            "show_events_card"
+        ])));
+        assert!(is_known_config_path(&path(&[
+            "nightlight",
+            "temperature_day"
+        ])));
+        assert!(is_known_config_path(&path(&["location", "auto_locate"])));
+        assert!(is_known_config_path(&path(&["keybinds", "validate"])));
+        assert!(is_known_config_path(&path(&["control_center", "sidebar"])));
+        assert!(is_known_config_path(&path(&["hooks", "wallpaper_changed"])));
+        assert!(is_known_config_path(&path(&[
+            "bar",
+            "default",
+            "thickness"
+        ])));
+        assert!(is_known_config_path(&path(&[
+            "bar",
+            "default",
+            "concave_edge_corners"
+        ])));
+        assert!(is_known_config_path(&path(&["bar", "default", "position"])));
+        assert!(is_known_config_path(&path(&["bar", "default"])));
+        assert!(is_known_config_path(&path(&[
+            "bar",
+            "default",
+            "monitor",
+            "DP-1",
+            "thickness"
+        ])));
+        assert!(is_known_config_path(&path(&[
+            "bar",
+            "default",
+            "monitor",
+            "DP-1",
+            "concave_edge_corners"
+        ])));
+
+        // Unknown / typos
+        assert!(!is_known_config_path(&path(&["shell", "ui_scl"])));
+        assert!(!is_known_config_path(&path(&[
+            "shell",
+            "panel",
+            "control_center_palcement"
+        ])));
+        assert!(!is_known_config_path(&path(&["accessibilit", "ui_scale"])));
+        assert!(!is_known_config_path(&path(&["shell"])));
+        assert!(!is_known_config_path(&path(&["dock", "radius_top_typo"])));
+        assert!(!is_known_config_path(&path(&[
+            "desktop_widgets",
+            "enabeld"
+        ])));
+        assert!(!is_known_config_path(&path(&[
+            "desktop_widgets",
+            "grid",
+            "cell_szie"
+        ])));
+        assert!(!is_known_config_path(&path(&[
+            "desktop_widgets",
+            "widget",
+            "clock1",
+            "bogus"
+        ])));
+        assert!(!is_known_config_path(&path(&[
+            "bar",
+            "default",
+            "thicknesss"
+        ])));
+        assert!(!is_known_config_path(&path(&[
+            "bar", "default", "monitor", "DP-1", "bogus"
+        ])));
+        assert!(!is_known_config_path(&[]));
+    }
+}

@@ -234,6 +234,7 @@ version = "0.1.0"
 name = "noctalia-config"
 version = "0.1.0"
 dependencies = [
+ "calloop",
  "noctalia-core",
  "serde",
  "serde_json",

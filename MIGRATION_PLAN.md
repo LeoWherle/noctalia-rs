@@ -468,10 +468,10 @@ by design).
   exported output with C++ binary for the same input config.
 - [x] 2.8 State store — src: `state_store.{cpp,h}` → `config::state_store`. Done:
   ported round-trip + permission tests.
-- [ ] 2.9 Config service & polling — src: `config_service.{cpp,h}`,
+- [x] 2.9 Config service & polling — src: `config_service.{cpp,h}`,
   `config_poll_source.h` → `config::service` (calloop file-watch source). Done: test:
   touch file → reload event with debounce matching C++.
-- [ ] 2.10 Path resolution — Done: port `tests/config_path_resolution_test.cpp`
+- [x] 2.10 Path resolution — Done: port `tests/config_path_resolution_test.cpp`
   (XDG dirs, env overrides).
 
 ### Phase 3 — Theme engine (`crates/noctalia-theme`)
