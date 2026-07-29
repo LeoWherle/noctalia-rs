@@ -1856,3 +1856,12 @@ Next step: task 2.5.3 (include-aware directory merge —
   directory forms), cycle detection, `autoload = false` opt-out, an env-var-
   expanded include path.
 
+## 2026-07-29 (session 32)
+Attempted: task 2.5.3 — include-aware directory merge.
+Done: 2.5.3, flipped in MIGRATION_PLAN.md. Also flipped task 2.5 (all subtasks 2.5.1-2.5.3 complete; 2.5.4 folded into 2.9).
+  Added `expand_env_vars`, `expand_user_path`, `lexically_normal`, and `resolve_path` to `noctalia-core::files::paths` (`crates/noctalia-core/src/files/paths.rs`). Added `ENV_MUTATION_LOCK` synchronization to `expand_env_vars` unit test for multi-threaded test safety.
+  New `merge_config_with_includes` and `MergeResult` in `noctalia-config::merge` (`crates/noctalia-config/src/merge.rs`), porting `src/config/config_merge.cpp`: sorted `*.toml` scanning, `[include]` table parsing (`files`, `autoload`), cycle/duplicate skipping via `canonical_key`, environment variable expansion, relative path resolution, and opt-out autoload filtering.
+  Tests: unit tests for multi-file sorted merge, `[include].files` (file + directory forms), cycle detection, `autoload = false` opt-out, and environment-variable-expanded include paths.
+  `just check` clean (220 tests green).
+Half-finished: nothing.
+Next step: task 2.6 (config migrations — `src/config/config_migrations.{cpp,h}` → `config::migrations` using `toml_edit`; port `tests/config_migration_test.cpp`).

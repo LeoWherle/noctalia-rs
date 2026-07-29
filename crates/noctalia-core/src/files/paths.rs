@@ -126,6 +126,124 @@ pub fn asset_path(relative_path: &str) -> PathBuf {
     assets_root().join(relative_path)
 }
 
+/// Expands $NAME and ${NAME} environment-variable references.
+/// NAME matches [A-Za-z_][A-Za-z0-9_]*; undefined variables expand to empty string.
+/// A lone '$' or '$' followed by a non-name character is left verbatim.
+pub fn expand_env_vars(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let bytes = input.as_bytes();
+    let is_name_start = |b: u8| b.is_ascii_alphabetic() || b == b'_';
+    let is_name_char = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'$' {
+            out.push(bytes[i] as char);
+            i += 1;
+            continue;
+        }
+
+        // Handle ${NAME}
+        if i + 1 < bytes.len() && bytes[i + 1] == b'{' {
+            if let Some(close_rel) = bytes[i + 2..].iter().position(|&b| b == b'}') {
+                let close = i + 2 + close_rel;
+                let name = &input[i + 2..close];
+                if let Ok(val) = env::var(name) {
+                    out.push_str(&val);
+                }
+                i = close + 1;
+                continue;
+            }
+            // No closing brace
+            out.push('$');
+            i += 1;
+            continue;
+        }
+
+        // Handle $NAME
+        if i + 1 < bytes.len() && is_name_start(bytes[i + 1]) {
+            let mut j = i + 1;
+            while j < bytes.len() && is_name_char(bytes[j]) {
+                j += 1;
+            }
+            let name = &input[i + 1..j];
+            if let Ok(val) = env::var(name) {
+                out.push_str(&val);
+            }
+            i = j;
+            continue;
+        }
+
+        // Lone '$'
+        out.push('$');
+        i += 1;
+    }
+    out
+}
+
+/// Expands ~ and ~/ paths using $HOME.
+pub fn expand_user_path(path: &str) -> PathBuf {
+    if path.is_empty() || !path.starts_with('~') {
+        return PathBuf::from(path);
+    }
+    let home = match env::var("HOME") {
+        Ok(val) if !val.is_empty() => val,
+        _ => return PathBuf::from(path),
+    };
+    if path == "~" {
+        return PathBuf::from(home);
+    }
+    if let Some(rest) = path.strip_prefix("~/") {
+        return PathBuf::from(home).join(rest);
+    }
+    PathBuf::from(path)
+}
+
+/// Collapses `.`/`..` components without touching the filesystem (no symlink
+/// resolution) — matches `std::filesystem::path::lexically_normal`.
+pub fn lexically_normal(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut result = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => match result.components().next_back() {
+                Some(Component::Normal(_)) => {
+                    result.pop();
+                }
+                Some(Component::RootDir) | Some(Component::Prefix(_)) => {}
+                _ => result.push(".."),
+            },
+            other => result.push(other.as_os_str()),
+        }
+    }
+    if result.as_os_str().is_empty() {
+        result.push(".");
+    }
+    result
+}
+
+/// Expands ~ and resolves relative paths against `base_dir` when provided;
+/// otherwise uses current working directory for relative paths.
+pub fn resolve_path(path: &str, base_dir: Option<&Path>) -> PathBuf {
+    if path.is_empty() || path.starts_with("color:") {
+        return PathBuf::from(path);
+    }
+
+    let mut resolved = expand_user_path(path);
+    if !resolved.is_absolute() {
+        if let Some(base) = base_dir
+            && !base.as_os_str().is_empty()
+        {
+            resolved = base.join(resolved);
+        } else if let Ok(cwd) = env::current_dir() {
+            resolved = cwd.join(resolved);
+        }
+    }
+
+    lexically_normal(&resolved)
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -172,5 +290,71 @@ mod tests {
         // This is the repo's actual `assets/` dir (build.rs resolves it relative to
         // the crate's manifest dir), so it should always satisfy `is_asset_root`.
         assert!(is_asset_root(&source_assets_root()));
+    }
+
+    #[test]
+    fn expand_env_vars_expands_braced_and_unbraced_vars() {
+        let _guard = crate::process::test_support::ENV_MUTATION_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        unsafe {
+            env::set_var("TEST_VAR_FOO", "hello");
+            env::set_var("TEST_VAR_BAR", "world");
+        }
+        assert_eq!(expand_env_vars("echo $TEST_VAR_FOO"), "echo hello");
+        assert_eq!(expand_env_vars("echo ${TEST_VAR_BAR}!"), "echo world!");
+        assert_eq!(expand_env_vars("echo $NONEXISTENT_VAR"), "echo ");
+        assert_eq!(
+            expand_env_vars("echo ${UNCLOSED_VAR"),
+            "echo ${UNCLOSED_VAR"
+        );
+        assert_eq!(expand_env_vars("price is $5"), "price is $5");
+        unsafe {
+            env::remove_var("TEST_VAR_FOO");
+            env::remove_var("TEST_VAR_BAR");
+        }
+    }
+
+    #[test]
+    fn expand_user_path_expands_tilde() {
+        let home = env::var("HOME").unwrap_or_default();
+        if !home.is_empty() {
+            assert_eq!(expand_user_path("~"), PathBuf::from(&home));
+            assert_eq!(
+                expand_user_path("~/sub/dir"),
+                PathBuf::from(&home).join("sub/dir")
+            );
+        }
+        assert_eq!(expand_user_path("/abs/path"), PathBuf::from("/abs/path"));
+        assert_eq!(expand_user_path("rel/path"), PathBuf::from("rel/path"));
+    }
+
+    #[test]
+    fn lexically_normal_collapses_curdir_and_parentdir() {
+        assert_eq!(
+            lexically_normal(Path::new("/a/b/../c/./d")),
+            PathBuf::from("/a/c/d")
+        );
+        assert_eq!(
+            lexically_normal(Path::new("a/b/../../c")),
+            PathBuf::from("c")
+        );
+        assert_eq!(lexically_normal(Path::new(".")), PathBuf::from("."));
+    }
+
+    #[test]
+    fn resolve_path_handles_base_dir_and_special_schemes() {
+        assert_eq!(
+            resolve_path("color:#123456", None),
+            PathBuf::from("color:#123456")
+        );
+        assert_eq!(
+            resolve_path("foo/bar.toml", Some(Path::new("/base"))),
+            PathBuf::from("/base/foo/bar.toml")
+        );
+        assert_eq!(
+            resolve_path("/abs/foo.toml", Some(Path::new("/base"))),
+            PathBuf::from("/abs/foo.toml")
+        );
     }
 }

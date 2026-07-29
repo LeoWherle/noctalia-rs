@@ -411,7 +411,7 @@ by design).
     after 2.5+2.6 land. The CLI-level `config_validate_cli_test.sh` (needs a real
     `noctalia config validate` binary + `config export full`, task 2.7) is the
     final done-bar for this subtask, not for 2.4 as a whole.
-- [ ] 2.5 Merge & overrides — src: `config_merge.{cpp,h}`, `config_overrides.cpp` →
+- [x] 2.5 Merge & overrides — src: `config_merge.{cpp,h}`, `config_overrides.cpp` →
   `config::merge`. Done: ported merge tests; deep-merge semantics identical.
   **Split (session 31, `config_overrides.cpp` is 2467 lines, almost all of it
   `ConfigService::*` methods needing a live service — task 2.9, not ported —
@@ -440,7 +440,7 @@ by design).
     coercion, the bar monitor-override resolution + comparison (every override
     field, matching `applyMonitorOverrideForComparison` exactly), and
     `ConfigChangeSet`/`configEqual` round-trips against representative diffs.
-  - [ ] 2.5.3 Include-aware directory merge — `mergeConfigWithIncludes`
+  - [x] 2.5.3 Include-aware directory merge — `mergeConfigWithIncludes`
     (`config_merge.cpp`): scans a config dir for sorted `*.toml`, expands each
     file's `[include]` table (files + directories, cycle detection, `autoload`
     opt-out), overlaying via 2.5.1's `deep_merge`. Needs `FileUtils::
