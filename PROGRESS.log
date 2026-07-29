@@ -1195,3 +1195,98 @@ Next step: task 2.1.2 (bar & widget settings). Per its own plan-text
   which is task 2.2's, not 2.1.2's — check PROGRESS.log/MIGRATION_PLAN.md
   state before starting: either do 2.2 first, or pull just
   `WidgetSettingValue` forward into 2.1.2 if 2.2 still hasn't landed.
+
+## 2026-07-29 (session 20)
+Attempted: task 2.1.2 — bar & widget settings.
+Done: 2.1.2, flipped in MIGRATION_PLAN.md. Took the plan's own documented
+  fallback (2.2 hadn't landed yet): pulled `widget_setting_value.h` forward
+  wholesale into `noctalia-config::types::widget_setting_value`
+  (`WidgetSettingValue`/`WidgetSettingStringMap`, plus
+  `WidgetSettingValueAs`/`IntoWidgetSettingValue` traits standing in for the
+  C++'s `widgetSettingValueAs<T>`/`widgetSettingValueFrom<T>` function-template
+  specialization, since Rust has no variadic template equivalent — implemented
+  for the concrete types with real call sites today: bool/i64/f64/String/
+  Vec<String>/StringMap/ColorSpec). Left task 2.2's own scope (`widget_config.cpp`'s
+  `readWidgetSettingValue`/`seedBuiltinWidgets`/`readBarWidgetConfig`, and porting
+  `tests/config_widget_test.cpp`) untouched — noted in MIGRATION_PLAN.md's 2.2 entry.
+  New `noctalia-config` crate content (first real code in this crate; was an empty
+  skeleton): `types::bar` — `BarCapsuleGroupStyle`/`BarDeadZoneOverride`/
+  `BarMonitorOverride`/`BarDeadZoneConfig`/`BarConfig`/`WidgetBarCapsuleSpec`/
+  `WidgetConfig` (+ its 9 accessor methods) from `config_types.{h,cpp}`, plus the
+  capsule-group reconciliation helpers (`resolve_widget_bar_capsule_spec`,
+  `find_bar_capsule_group_style`, `capsule_group_refs_for_{bar,monitor}_scope`,
+  `reconcile_capsule_groups`, `capsule_spec_from_group`, the
+  `{is,make}_capsule_group_token`/`capsule_group_token_id` trio),
+  `resolve_widget_content_scale`, and `output_matches_selector`.
+  Key architecture finding (recorded in the module doc comment, not just here):
+  `config_types.{h,cpp}` itself contains no TOML-reading code at all — the real
+  C++ TOML-key <-> struct-field mapping lives in `src/config/schema/config_schema.cpp`
+  (task 2.3, not yet ported), a declarative field-registration engine that also does
+  range clamping (`kBarThicknessRange` etc.), warn-diagnostics on bad enum strings, and
+  array keep-predicates. Cross-checked every `serde(rename = ...)` key against that
+  file's `field(&Struct::member, "toml_key")` registrations (the authoritative source,
+  not `example.toml`'s comments, which don't cover every field). Scope decision: this
+  task's structs derive plain `serde::Deserialize`/`Serialize` (container-level
+  `#[serde(default)]` backed by a manual `impl Default` matching every C++ member
+  initializer) for shape/key-name fidelity only — no range clamping, no diagnostics,
+  no keep-predicates; that behavior is explicitly task 2.3's job, not reproduced here.
+  `WidgetConfig`/`WidgetBarCapsuleSpec` don't derive `Deserialize` at all: the former's
+  `settings` map is populated by task 2.2's explicit reader code, not derive machinery;
+  the latter is a computed output type, never itself read from a config file.
+  `BarConfig::name`/`monitor_overrides` are `#[serde(skip)]` (populated by the
+  not-yet-written `[bar.<name>]` map-key / `[bar.<name>.monitor.<id>]` table-map
+  assembly, tasks 2.1.9/2.9) — `position`, despite the C++ also special-casing it
+  outside the schema engine's generic field loop, genuinely lives at the ordinary
+  `position` TOML key, so plain derive already does the right thing there.
+  `outputMatchesSelector` takes `connector_name`/`description: &str` directly instead
+  of a `WaylandOutput` (config_types.h:21's forward declaration only — the real struct
+  belongs to the not-yet-ported compositor layer); callers adapt when it lands.
+  Added `ui/style.h` constant placeholders (`BAR_THICKNESS_DEFAULT`/`RADIUS_XL`/
+  `BAR_CAPSULE_PADDING`) the same way task 1.7 placeholder'd `INSTALL_PREFIX` —
+  `ui/style.h` has no assigned migration task yet. Small private
+  `is_c_isspace_byte`/`trim_c_whitespace` duplicate `noctalia-core::color::rgb`'s
+  `pub(crate)` originals (same "duplicate pending a shared string_utils.h port" call
+  as task 1.6.5's `generate_uuid_v4`).
+  Added deps to (previously-empty) `noctalia-config`: `noctalia-core` (path dep),
+  `serde` (derive), `toml`, `thiserror`. Checked `cargo tree -i openssl-sys` ->
+  nothing depends on it.
+  Tests: 47 in the new crate (up from 0). `bar_main_widget_lanes_deserialize_losslessly_from_example_toml`
+  + `bar_main_scalar_fields_deserialize_from_example_toml` are this task's literal
+  done-bar (real `example.toml`, `include_str!`'d, `[bar.main]` table parsed via
+  `toml::Value::try_into::<BarConfig>()`). No C++ test exists for the capsule-group
+  reconciliation helpers or `resolveWidgetBarCapsuleSpec`/`resolveWidgetContentScale`/
+  `outputMatchesSelector` (verified via grep against `tests/`) — unit tests ported the
+  branch structure directly from the C++ source instead (kept/reintroduced/gui-created/
+  gui-orphaned cases for `reconcileCapsuleGroups`; widget-override-vs-bar-default
+  priority chains for `resolveWidgetBarCapsuleSpec`; word-boundary and empty-needle
+  edge cases for `outputMatchesSelector`).
+  Pre-done review (rule 3, fresh subagent): found 3 real issues, all fixed before
+  committing. (1) Blocking: `BarConfig`/`BarMonitorOverride`'s `widget_capsule_padding`/
+  `widget_capsule_radius`/`widget_capsule_opacity`/`widget_capsule_border` fields were
+  missing `serde(rename = ...)` (every sibling `widget_capsule_*` field had it) — since
+  no container-level `rename_all` is set, this meant these four settings could never
+  actually be read from a real config file (TOML keys are `capsule_padding`/
+  `capsule_radius`/`capsule_opacity`/`capsule_border`, not the Rust field names),
+  directly contradicting this module's own "cross-checked against config_schema.cpp"
+  claim. Fixed (8 attributes across both structs) + added 2 regression tests parsing
+  the real short TOML keys. (2) Documented, not fixed: `WidgetSettingValueAs for
+  ColorSpec` swallows a color-string parse failure to `None` (silent fallback to the
+  caller's default) where the C++ lets `colorSpecFromConfigString`'s
+  `std::runtime_error` propagate uncaught through the same call chain — the trait's
+  `Option<Self>` return has no error channel to preserve that. Recorded as a deliberate,
+  accepted divergence (real callers today only reach this through not-yet-ported
+  schema-validated config, task 2.3, where a malformed string shouldn't occur) rather
+  than widening the trait's signature project-wide for a case with no live caller yet.
+  (3) Fixed: the module doc comment wrongly claimed `position` was `#[serde(skip)]`
+  alongside `name` — it isn't (and correctly shouldn't be); corrected the comment.
+  Verified fix with `just check` (clean) + reran the crate's test suite (47/47 pass,
+  including both new regression tests) after each fix. Independently re-verified
+  every other `serde(rename)` in both structs against `config_schema.cpp` line-by-line;
+  the capsule-group reconciliation/resolve-spec/content-scale/selector-matching pure
+  functions all came back as faithful ports on independent re-derivation from the C++.
+Half-finished: nothing.
+Next step: task 2.2 (widget config — `widget_config.cpp`'s
+  `readWidgetSettingValue`/`seedBuiltinWidgets`/`readBarWidgetConfig`, port
+  `tests/config_widget_test.cpp`; `WidgetSettingValue` itself and
+  `resolveWidgetBarCapsuleSpec` are already available from this session). After
+  that, 2.1.3 (shell config) continues the 2.1.x split.

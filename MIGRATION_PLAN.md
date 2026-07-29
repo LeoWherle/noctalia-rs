@@ -231,7 +231,7 @@ by design).
     — avoids a config↔theme crate dependency either direction. Done: parse/
     serialize round-trip test for every `ColorRole` token + a handful of hex
     strings from `example.toml`.
-  - [ ] 2.1.2 Bar & widget settings — `BarCapsuleGroupStyle`/
+  - [x] 2.1.2 Bar & widget settings — `BarCapsuleGroupStyle`/
     `BarDeadZoneOverride`/`BarMonitorOverride`/`BarDeadZoneConfig`/
     `BarConfig`, `WidgetBarCapsuleSpec`, `WidgetConfig` (the settings-map
     struct + its `findSetting`/`getString`/`getInt`/`getDouble`/`getBool`/
@@ -297,6 +297,15 @@ by design).
     struct — this is where task 2.1's original done-bar actually lands.
 - [ ] 2.2 Widget config — src: `src/config/widget_config.{cpp,h}`,
   `widget_setting_value.h` → `config::widget`. Done: port `tests/config_widget_test.cpp`.
+  Note (session 20): `widget_setting_value.h` itself already landed as part of
+  2.1.2 (pulled forward, per this task's own dependency note above) —
+  `noctalia-config::types::widget_setting_value` (`WidgetSettingValue`,
+  `WidgetSettingValueAs`/`IntoWidgetSettingValue` traits). What's left here is
+  `widget_config.cpp`'s three functions (`readWidgetSettingValue`,
+  `seedBuiltinWidgets`, `readBarWidgetConfig`) plus porting
+  `tests/config_widget_test.cpp`, which also exercises `resolveWidgetBarCapsuleSpec`
+  (2.1.2's `noctalia-config::types::bar::resolve_widget_bar_capsule_spec`, already
+  available).
 - [ ] 2.3 Schema — src: `src/config/schema/*` → `config::schema`. Done: port
   `tests/config_schema_roundtrip_test.cpp` (roundtrip equality).
 - [ ] 2.4 Validation — src: `src/config/config_validate.{cpp,h}` → `config::validate`.
