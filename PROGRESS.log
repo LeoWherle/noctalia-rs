@@ -1913,3 +1913,13 @@ Done: 3.1, flipped in MIGRATION_PLAN.md. New `noctalia-theme::color` (`crates/no
 Half-finished: nothing.
 Next step: Phase 3 task 3.2 (palettes — `builtin_palettes.*`, `fixed_palette.*`, `custom_palettes.*`, `community_palettes.*`, `palette.h` → `noctalia-theme::palette`).
 
+## 2026-07-29 (session 38)
+Attempted: Phase 3 task 3.2 — palettes.
+Done: 3.2, flipped in MIGRATION_PLAN.md. New `noctalia-theme::palette` (`crates/noctalia-theme/src/palette.rs`), porting `palette.h`, `fixed_palette.{cpp,h}`, `builtin_palettes.{cpp,h}`:
+  Implemented `Palette`, `TerminalAnsiColors`, `TerminalPalette`, `FixedPaletteMode`, `BuiltinPalette`, `GeneratedPalette`, `builtin_palettes`, `find_builtin_palette`, `expand_fixed_palette_mode`, `expand_builtin_palette`, `apply_terminal_palette`, and `synthesize_terminal_palette_tokens`.
+  Tests: unit tests verifying palette lookup, token generation across light and dark modes, and token completeness for all builtin palettes (Ayu, Catppuccin, Dracula, etc.).
+  `just check` clean (256 tests green).
+Half-finished: nothing.
+Next step: Phase 3 task 3.3 (M3 scheme generation — `m3_schemes.cpp`, `scheme.{cpp,h}`, `palette_generator.*`, `palette_transform.*` → `noctalia-theme::scheme`).
+
+

@@ -478,7 +478,7 @@ by design).
 - [x] 3.1 Color core — src: `src/theme/color.{cpp,h}`, `contrast.{cpp,h}` →
   `theme::color`. Include the achromatic-HSV interpolation fix (commit 73c7c73c).
   Done: numeric golden tests vs C++ for parse/blend/contrast.
-- [ ] 3.2 Palettes — src: `builtin_palettes.*`, `fixed_palette.*`, `custom_palettes.*`,
+- [x] 3.2 Palettes — src: `builtin_palettes.*`, `fixed_palette.*`, `custom_palettes.*`,
   `community_palettes.*`, `palette.h` → `theme::palette`. Done: builtin table equality
   against C++ dump.
 - [ ] 3.3 M3 scheme generation — src: `m3_schemes.cpp`, `scheme.{cpp,h}`,
