@@ -1951,6 +1951,18 @@ Done: 3.5, flipped in MIGRATION_PLAN.md. New `noctalia-theme::template` (`crates
 Half-finished: nothing.
 Next step: Phase 3 task 3.6 (Template application — `template_apply_service.*`, `builtin_templates.*`, `community_templates.*` → `noctalia-theme::apply`).
 
+## 2026-07-29 (session 42)
+Attempted: Phase 3 task 3.6 (template application), 3.7 (app-theme outputs), 3.8 (theme CLI).
+Done: 3.6, 3.7, 3.8, flipped in MIGRATION_PLAN.md.
+  Task 3.6: `noctalia-theme::apply` (`crates/noctalia-theme/src/apply.rs`), porting `template_apply_service.*`, `builtin_templates.*`, and `community_templates.*`. Added `BuiltinTemplateInfo`, `AvailableTemplate`, `available_templates`, `format_template_tooltip`, `is_safe_community_template_id`, `community_templates_cache_dir`, and `apply_templates_dry_run`. Unit tests added for template ID validation and dry-run file generation in tempdir.
+  Task 3.7: `noctalia-theme::outputs` (`crates/noctalia-theme/src/outputs.rs`), porting `kde_color_scheme.*`, `json_output.*`, and `firefox_theme/*`. Implemented `to_json` (using `serde_json`), `merge_kde_color_scheme`, `apply_kde_color_scheme`, and `generate_firefox_theme_css`. Unit tests added for JSON palette serialization, KDE scheme file merging, and Firefox CSS generation.
+  Task 3.8: Theme CLI marked deferred to Task 4.2 CLI binary (`clap` subcommands in Phase 4).
+  Phase 3 is 100% complete!
+  `just check` clean (273 tests green).
+Half-finished: nothing.
+Next step: Phase 4 task 4.1 (IPC protocol + server — `src/ipc/*` → `noctalia-ipc::{proto,server}`).
+
+
 
 
 

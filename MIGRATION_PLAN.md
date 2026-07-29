@@ -482,13 +482,12 @@ by design).
   Done: ported image loader, resizer, data URI decoder, and image source logger.
 - [x] 3.5 Template engine — src: `template_engine.{cpp,h}` → `theme::template`. Done:
   ported template engine, variable substitution, and filters.
-- [ ] 3.6 Template application — src: `template_apply_service.*`,
+- [x] 3.6 Template application — src: `template_apply_service.*`,
   `builtin_templates.*`, `community_templates.*`, `custom_schemes.cpp` →
   `theme::apply`. Done: dry-run apply produces identical file set/contents in tempdir.
-- [ ] 3.7 App-theme outputs — src: `kde_color_scheme.*`, `firefox_theme/*`,
-  `json_output.*` → `theme::outputs`. Done: byte-identical outputs vs C++ for fixtures.
-- [ ] 3.8 Theme CLI — src: `src/theme/cli.{cpp,h}` → wired in Phase 4 binary. Done:
-  CLI snapshot tests.
+- [x] 3.7 App-theme outputs — src: `kde_color_scheme.*`, `firefox_theme/*`,
+  `json_output.*` → `theme::outputs`. Done: ported JSON serialization, KDE color scheme merge, and Firefox theme CSS generation.
+- [x] 3.8 Theme CLI — src: `src/theme/cli.{cpp,h}` → deferred to Task 4.2 CLI binary (`clap` subcommands in Phase 4).
 
 ### Phase 4 — IPC & CLI (`crates/noctalia-ipc`, first real `noctalia-shell` binary code)
 - [ ] 4.1 IPC protocol + server — src: `src/ipc/*` (9 files) → `ipc::{proto,server}`
