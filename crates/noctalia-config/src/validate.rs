@@ -38,10 +38,18 @@
 //! exists yet) and the CLI-level `config_validate_cli_test.sh` (needs a real
 //! `noctalia config validate` binary and `config export full`, task 2.7).
 
+use std::path::{Path, PathBuf};
+
+use crate::merge::merge_config_with_includes;
+use crate::migrations::{
+    LegacyConfigIssue, apply_pending_config_migrations, config_migrations, normalize_legacy_config,
+    stored_config_version,
+};
 use crate::schema::config_schema::{bar_fields_schema, bar_monitor_override_schema};
 use crate::schema::config_sections::{SectionSpec, is_known_root_key, sections};
 use crate::schema::diagnostics::Diagnostics;
 use crate::schema::engine::{collect_unknown_keys, read_into};
+use crate::service::deep_merge;
 use crate::types::bar::{BarConfig, BarMonitorOverride};
 
 /// Port of `day_night_schedule::normalizedClock` (`src/system/day_night_schedule.cpp:103-119`).
@@ -274,6 +282,131 @@ pub fn validate_merged_config(merged: &toml::Table) -> Diagnostics {
             diag.warn(key.clone(), "unknown section");
         }
     }
+    diag
+}
+
+pub fn merge_sources(
+    config_dir: &Path,
+    settings_toml_path: &Path,
+    diag: &mut Diagnostics,
+    loaded_files_out: &mut Vec<PathBuf>,
+) -> toml::Table {
+    let merge_result = merge_config_with_includes(config_dir);
+    let mut merged = merge_result.merged;
+    *loaded_files_out = merge_result.loaded_files;
+
+    if !merge_result.first_error.is_empty() {
+        diag.fatal_with_code("syntax", &merge_result.first_error, "config.syntax");
+    }
+
+    if !settings_toml_path.as_os_str().is_empty() && settings_toml_path.exists() {
+        match std::fs::read_to_string(settings_toml_path) {
+            Ok(content) => match content.parse::<toml::Table>() {
+                Ok(mut sidecar) => {
+                    if let Some(version) = stored_config_version(&sidecar, diag) {
+                        let applied_version = apply_pending_config_migrations(
+                            &mut sidecar,
+                            version,
+                            diag,
+                            config_migrations(),
+                        );
+                        sidecar.insert(
+                            "version".to_string(),
+                            toml::Value::Integer(applied_version as i64),
+                        );
+                    }
+                    deep_merge(&mut merged, &sidecar);
+                }
+                Err(err) => {
+                    diag.fatal_with_code(
+                        "syntax",
+                        format!("{}: {err}", settings_toml_path.display()),
+                        "config.syntax",
+                    );
+                }
+            },
+            Err(err) => {
+                diag.fatal_with_code(
+                    "syntax",
+                    format!("{}: {err}", settings_toml_path.display()),
+                    "config.syntax",
+                );
+            }
+        }
+    }
+
+    merged.remove("version");
+    let mut issues = Vec::<LegacyConfigIssue>::new();
+    normalize_legacy_config(&mut merged, &mut issues);
+    for issue in issues {
+        diag.warn(&issue.path, &issue.message);
+    }
+    merged
+}
+
+/// Port of `validateConfigSources` (`config_validate.cpp:769-785`).
+pub fn validate_config_sources(
+    config_dir: impl AsRef<Path>,
+    settings_toml_path: impl AsRef<Path>,
+) -> Diagnostics {
+    let mut diag = Diagnostics::default();
+    let mut loaded_files = Vec::new();
+    let merged = merge_sources(
+        config_dir.as_ref(),
+        settings_toml_path.as_ref(),
+        &mut diag,
+        &mut loaded_files,
+    );
+
+    for file in loaded_files {
+        if let Ok(content) = std::fs::read_to_string(&file)
+            && let Ok(raw) = content.parse::<toml::Table>()
+        {
+            validate_include_shape(&raw, &mut diag);
+        }
+    }
+
+    let merged_diag = validate_merged_config(&merged);
+    diag.entries.extend(merged_diag.entries);
+    diag
+}
+
+/// Port of `validateConfigFile` (`config_validate.cpp:787-804`).
+pub fn validate_config_file(path: impl AsRef<Path>) -> Diagnostics {
+    let path = path.as_ref();
+    let mut diag = Diagnostics::default();
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(err) => {
+            diag.fatal_with_code(
+                "syntax",
+                format!("{}: {err}", path.display()),
+                "config.syntax",
+            );
+            return diag;
+        }
+    };
+
+    let mut parsed: toml::Table = match content.parse() {
+        Ok(t) => t,
+        Err(err) => {
+            diag.fatal_with_code(
+                "syntax",
+                format!("{}: {err}", path.display()),
+                "config.syntax",
+            );
+            return diag;
+        }
+    };
+
+    let mut issues = Vec::<LegacyConfigIssue>::new();
+    normalize_legacy_config(&mut parsed, &mut issues);
+    for issue in issues {
+        diag.warn(&issue.path, &issue.message);
+    }
+
+    let merged_diag = validate_merged_config(&parsed);
+    diag.entries.extend(merged_diag.entries);
     diag
 }
 
@@ -561,5 +694,38 @@ mod tests {
             "example.toml should validate cleanly: {:?}",
             diag.entries
         );
+    }
+
+    #[test]
+    fn validate_config_sources_reads_dir_and_settings() {
+        let dir = std::env::temp_dir().join(format!("noctalia-val-src-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let config_dir = dir.join("config");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::write(
+            config_dir.join("00-bar.toml"),
+            "[bar.default]\nthickness = 30\n",
+        )
+        .unwrap();
+
+        let settings_path = dir.join("settings.toml");
+        std::fs::write(&settings_path, "[dock]\nenabled = true\n").unwrap();
+
+        let diag = validate_config_sources(&config_dir, &settings_path);
+        assert!(!diag.has_errors());
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn validate_config_file_detects_syntax_errors() {
+        let file =
+            std::env::temp_dir().join(format!("noctalia-val-err-{}.toml", std::process::id()));
+        std::fs::write(&file, "[bar.default\nthickness = invalid\n").unwrap();
+
+        let diag = validate_config_file(&file);
+        assert!(diag.has_errors());
+
+        let _ = std::fs::remove_file(file);
     }
 }

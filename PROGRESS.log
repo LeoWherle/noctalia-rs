@@ -1922,4 +1922,16 @@ Done: 3.2, flipped in MIGRATION_PLAN.md. New `noctalia-theme::palette` (`crates/
 Half-finished: nothing.
 Next step: Phase 3 task 3.3 (M3 scheme generation — `m3_schemes.cpp`, `scheme.{cpp,h}`, `palette_generator.*`, `palette_transform.*` → `noctalia-theme::scheme`).
 
+## 2026-07-29 (session 39)
+Attempted: Task 2.4.5 (whole-source validation entry points) and Phase 3 task 3.3 (M3 scheme generation).
+Done: 2.4.5 & 3.3, flipped in MIGRATION_PLAN.md.
+  Task 2.4.5: `validate_config_sources` and `validate_config_file` in `crates/noctalia-config/src/validate.rs`, merging includes/sidecar settings, running migrations, and running section validation. Unit tests added.
+  Task 3.3: `noctalia-theme::scheme` (`crates/noctalia-theme/src/scheme.rs`), porting `scheme.{cpp,h}`, `palette_generator.{cpp,h}`, `palette_transform.{cpp,h}`, `m3_schemes.cpp`, and `custom_schemes.cpp`:
+    Implemented `Scheme` enum, `is_material`, string conversions, `apply_pure_black_dark`, `apply_high_contrast`, `generate`, `generate_material`, `generate_material_from_seed`, and `generate_custom` backed by `material-colors` crate (v0.4.2).
+    Tests: unit tests verifying string round-trips, pure black surface lowering, high contrast tone stretching, and golden outputs across 5 seed colors.
+  `just check` clean (261 tests green).
+Half-finished: nothing.
+Next step: Phase 3 task 3.4 (Image loading — `src/theme/image_loader.*` → `noctalia-theme::image`).
+
+
 

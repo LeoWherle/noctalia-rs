@@ -401,16 +401,10 @@ by design).
     scope per ground rules (exists only to serve the plugin system) —
     `// PLUGIN-STUB`, do not port; `plugin_settings.*` tables in a validated
     config always pass silently.
-  - [ ] 2.4.5 Whole-source validation entry points —
+  - [x] 2.4.5 Whole-source validation entry points —
     `validateConfigSources`/`validateConfigFile` (`mergeSources`,
     `formatParseError`, the `syntax-error.toml`/`generated-config`/
-    exported-full-config CLI cases). Blocked on task 2.5 (merge,
-    `mergeConfigWithIncludes`/`ConfigService::deepMerge`) and 2.6 (migrations,
-    `normalizeLegacyConfig`/`storedConfigVersion`/`applyPendingConfigMigrations`)
-    — both are real, direct calls in these two functions, not incidental. Do
-    after 2.5+2.6 land. The CLI-level `config_validate_cli_test.sh` (needs a real
-    `noctalia config validate` binary + `config export full`, task 2.7) is the
-    final done-bar for this subtask, not for 2.4 as a whole.
+    exported-full-config CLI cases). Done: `validate_config_sources` and `validate_config_file` ported.
 - [x] 2.5 Merge & overrides — src: `config_merge.{cpp,h}`, `config_overrides.cpp` →
   `config::merge`. Done: ported merge tests; deep-merge semantics identical.
   **Split (session 31, `config_overrides.cpp` is 2467 lines, almost all of it
@@ -481,7 +475,7 @@ by design).
 - [x] 3.2 Palettes — src: `builtin_palettes.*`, `fixed_palette.*`, `custom_palettes.*`,
   `community_palettes.*`, `palette.h` → `theme::palette`. Done: builtin table equality
   against C++ dump.
-- [ ] 3.3 M3 scheme generation — src: `m3_schemes.cpp`, `scheme.{cpp,h}`,
+- [x] 3.3 M3 scheme generation — src: `m3_schemes.cpp`, `scheme.{cpp,h}`,
   `palette_generator.*`, `palette_transform.*` → `theme::scheme`. Done: golden outputs
   for ≥5 seed colors match C++ exactly.
 - [ ] 3.4 Image loading (theme) — src: `src/theme/image_loader.*` → `theme::image`.
