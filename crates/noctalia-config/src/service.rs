@@ -2,7 +2,7 @@
 //! Port of `src/config/config_service.{cpp,h}` and `src/config/config_poll_source.h`.
 
 use std::os::fd::BorrowedFd;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use noctalia_core::atomic_file::write_text_file_atomic;
 use noctalia_core::files::file_watcher::{FileWatcher, WatchTrigger};
@@ -11,12 +11,12 @@ use noctalia_core::log::Logger;
 use crate::change_set::compute_config_change_set;
 use crate::merge::merge_config_with_includes;
 use crate::migrations::{
-    apply_pending_config_migrations, config_migrations, current_config_version,
-    stored_config_version,
+    K_CONFIG_VERSION_KEY, apply_pending_config_migrations, config_migrations,
+    current_config_version, normalize_legacy_config, stored_config_version,
 };
 use crate::schema::config_schema::bar_fields_schema;
 use crate::schema::config_sections::sections;
-use crate::schema::diagnostics::Diagnostics;
+use crate::schema::diagnostics::{Diagnostics, Severity};
 use crate::schema::engine::read_into;
 use crate::state_store::StateStore;
 use crate::types::bar::BarConfig;
@@ -41,6 +41,70 @@ pub fn deep_merge(base: &mut toml::Table, overlay: &toml::Table) {
             }
         }
     }
+}
+
+/// Port of `ConfigService::buildMergedUserConfigFromSources`'s private `mergeUserConfigSources`
+/// helper (`config_service.cpp:485-528`), inlined here (like the C++ private helper, it has no
+/// other caller). Bail-on-first-error: genuinely different from `validate::merge_sources`'s
+/// diagnostic-accumulating style — this always runs in the C++'s `error != nullptr` mode (the
+/// only real caller, the CLI, always wants a single first error over best-effort partial
+/// output), where `validate::merge_sources` matches the C++'s Diagnostics-accumulating
+/// `config_validate.cpp::mergeSources`. Do not conflate the two despite the similar names.
+fn merge_user_config_sources(
+    config_dir: &Path,
+    settings_path: &Path,
+) -> Result<toml::Table, String> {
+    let merge_result = merge_config_with_includes(config_dir);
+    let mut merged = merge_result.merged;
+    if !merge_result.first_error.is_empty() {
+        return Err(merge_result.first_error);
+    }
+
+    if !settings_path.as_os_str().is_empty() && settings_path.exists() {
+        let content = std::fs::read_to_string(settings_path)
+            .map_err(|err| format!("{}: {err}", settings_path.display()))?;
+        let mut sidecar: toml::Table = content
+            .parse()
+            .map_err(|err: toml::de::Error| format!("{}: {err}", settings_path.display()))?;
+
+        let mut migration_diag = Diagnostics::default();
+        if let Some(version) = stored_config_version(&sidecar, &mut migration_diag) {
+            apply_pending_config_migrations(
+                &mut sidecar,
+                version,
+                &mut migration_diag,
+                config_migrations(),
+            );
+        }
+        for entry in &migration_diag.entries {
+            if entry.severity == Severity::Error {
+                return Err(format!("{}: {}", entry.path, entry.message));
+            }
+            // Unconditional, even in bail mode: the C++'s `kLog.warn` call for non-Error
+            // entries sits outside the `error != nullptr` branch (config_service.cpp:505-512).
+            LOG.warn(format_args!("{}: {}", entry.path, entry.message));
+        }
+
+        deep_merge(&mut merged, &sidecar);
+    }
+
+    Ok(merged)
+}
+
+/// Port of `ConfigService::buildMergedUserConfigFromSources` (`config_service.cpp:808-820`).
+/// `export merged`'s backing function — see the module-level split note in MIGRATION_PLAN.md
+/// task 4.2.3 for why `buildEffectiveConfigFromSources` (`export full`) isn't ported alongside
+/// this: it needs a `parseConfigTable`/`makeDefaultConfig` equivalent whose launcher-provider
+/// step is blocked on task 14.1, not just more plumbing.
+pub fn build_merged_user_config_from_sources(
+    config_dir: &Path,
+    settings_path: &Path,
+) -> Result<String, String> {
+    let mut normalized = merge_user_config_sources(config_dir, settings_path)?;
+    normalized.remove(K_CONFIG_VERSION_KEY);
+    let mut issues = Vec::new();
+    normalize_legacy_config(&mut normalized, &mut issues);
+    Ok(toml::to_string(&normalized).unwrap_or_default() + "\n")
 }
 
 pub type ReloadCallback = Box<dyn FnMut(&Config, &ConfigChangeSet) + 'static>;
@@ -387,6 +451,127 @@ enabled = true
             .and_then(|v| v.get("enabled"))
             .and_then(|v| v.as_bool());
         assert_eq!(dock_enabled, Some(true));
+    }
+
+    #[test]
+    fn build_merged_user_config_from_sources_merges_dir_and_strips_config_version() {
+        let dir = temp_dir("export-merged");
+        let config_dir = dir.join("config");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::write(
+            config_dir.join("00-bar.toml"),
+            "config_version = 3\n[bar.default]\nthickness = 30\n",
+        )
+        .unwrap();
+
+        let settings_path = dir.join("settings.toml");
+        let result = build_merged_user_config_from_sources(&config_dir, &settings_path).unwrap();
+
+        let parsed: toml::Table = result.parse().unwrap();
+        assert!(!parsed.contains_key(K_CONFIG_VERSION_KEY));
+        assert_eq!(
+            parsed
+                .get("bar")
+                .and_then(|v| v.get("default"))
+                .and_then(|v| v.get("thickness"))
+                .and_then(toml::Value::as_integer),
+            Some(30)
+        );
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn build_merged_user_config_from_sources_merges_settings_sidecar() {
+        let dir = temp_dir("export-merged-sidecar");
+        let config_dir = dir.join("config");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::write(
+            config_dir.join("00-bar.toml"),
+            "[bar.default]\nthickness = 30\n",
+        )
+        .unwrap();
+
+        let settings_path = dir.join("settings.toml");
+        fs::write(&settings_path, "[bar.default]\nthickness = 55\n").unwrap();
+
+        let result = build_merged_user_config_from_sources(&config_dir, &settings_path).unwrap();
+        let parsed: toml::Table = result.parse().unwrap();
+        assert_eq!(
+            parsed
+                .get("bar")
+                .and_then(|v| v.get("default"))
+                .and_then(|v| v.get("thickness"))
+                .and_then(toml::Value::as_integer),
+            Some(55)
+        );
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn build_merged_user_config_from_sources_bails_on_syntax_error() {
+        let dir = temp_dir("export-merged-syntaxerr");
+        let config_dir = dir.join("config");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::write(config_dir.join("00-bar.toml"), "[bar.default\nbroken\n").unwrap();
+
+        let settings_path = dir.join("settings.toml");
+        let result = build_merged_user_config_from_sources(&config_dir, &settings_path);
+        assert!(result.is_err());
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn build_merged_user_config_from_sources_bails_on_sidecar_migration_error() {
+        let dir = temp_dir("export-merged-sidecar-migrationerr");
+        let config_dir = dir.join("config");
+        fs::create_dir_all(&config_dir).unwrap();
+
+        let settings_path = dir.join("settings.toml");
+        // A negative config_version fails `stored_config_version`'s validation with an
+        // Error-severity diagnostic (migrations.rs:705-712), which must bail the whole merge
+        // rather than being silently swallowed or merged anyway.
+        fs::write(&settings_path, "config_version = -1\n").unwrap();
+
+        let result = build_merged_user_config_from_sources(&config_dir, &settings_path);
+        assert!(result.is_err());
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn build_merged_user_config_from_sources_bails_on_sidecar_syntax_error() {
+        let dir = temp_dir("export-merged-sidecar-syntaxerr");
+        let config_dir = dir.join("config");
+        fs::create_dir_all(&config_dir).unwrap();
+
+        let settings_path = dir.join("settings.toml");
+        fs::write(&settings_path, "[bar.default\nbroken\n").unwrap();
+
+        let result = build_merged_user_config_from_sources(&config_dir, &settings_path);
+        assert!(result.is_err());
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn build_merged_user_config_from_sources_handles_missing_settings_path() {
+        let dir = temp_dir("export-merged-nosidecar");
+        let config_dir = dir.join("config");
+        fs::create_dir_all(&config_dir).unwrap();
+        fs::write(
+            config_dir.join("00-bar.toml"),
+            "[bar.default]\nthickness = 30\n",
+        )
+        .unwrap();
+
+        let settings_path = dir.join("does-not-exist.toml");
+        let result = build_merged_user_config_from_sources(&config_dir, &settings_path).unwrap();
+        assert!(result.contains("thickness = 30"));
+
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]

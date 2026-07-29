@@ -2149,6 +2149,90 @@ Next step: task 4.2.3 (config CLI `export` — start with `export merged`'s
   are independent of each other and of the theme-CLI subtasks (4.2.6/4.2.7), so whichever a
   future session picks up first is fine.
 
+## 2026-07-30 (session 45)
+Attempted: task 4.2.3 — config CLI `export`.
+Done: split 4.2.3 into 4.2.3a (`export merged`, done, flipped in MIGRATION_PLAN.md) and 4.2.3b
+  (`export full`, re-scoped and left unchecked — see below).
+  Before writing code, read `parseConfigTable` (`config_service.cpp:1556-1815`) end-to-end —
+  last session's plan note ("close the load_all gap as part of this subtask") turned out to
+  underestimate it. Most of the *pure* pieces `parseConfigTable` needs are already ported in
+  Rust and simply not wired into `load_all` (`read_bar_widget_config`,
+  `default_session_panel_actions`/`default_control_center_shortcuts`/`default_plugin_sources`/
+  `default_idle_behaviors`, `lift_template_config_custom_colors`, `seed_builtin_widgets` — all
+  found via grep, all real, none of it guessed). But two pieces are hard-blocked, not just
+  unwired: `validateWidgetSettings`/`parseWidgetsPlacementSection` both need per-widget-type
+  setting schemas (`desktop_settings::desktopWidgetSettingSchema` and siblings) that don't
+  exist in Rust yet — the same Phase 13/14/15 widget-type-registry blocker task 2.4.2 already
+  identified, not a new discovery, but I hadn't connected it to `export full` until reading the
+  function; and the launcher-provider-filtering loop touches `launcher::kBuiltinProviders`
+  (task 14.1) and `scripting::isValidPluginId`/`isValidPluginIdSegment` (out-of-scope
+  `src/scripting/`) directly and unconditionally — there's no way to write the Rust equivalent
+  at all, not even a stub, without those existing. Re-split 4.2.3 into 4.2.3a/4.2.3b in
+  MIGRATION_PLAN.md with this full accounting, rather than attempt a shaky partial port this
+  session.
+  4.2.3a: New `noctalia-config::service::{merge_user_config_sources, build_merged_user_config_
+  from_sources}` (`crates/noctalia-config/src/service.rs`), porting `config_service.cpp`'s
+  private `mergeUserConfigSources` helper (inlined, matching the C++ — it has no other caller)
+  and `ConfigService::buildMergedUserConfigFromSources`. Bail-on-first-error via `Result<_,
+  String>`, explicitly NOT reusing `validate::merge_sources` (diagnostic-accumulating, a
+  genuinely different function despite the similar name — both doc comments now cross-reference
+  each other to head off future conflation). Wired into `noctalia-config::cli::run_export` (new,
+  port of `cli.cpp`'s `runExport` + `kExportHelpText`), which dispatches `merged` to the new
+  function and reports `full` as not-yet-implemented (distinct error message naming task 4.2.3,
+  not the generic "unknown command" `export`/`settings-count`/`replay-report` fell through to
+  before this session — `export` itself is no longer unwired, only its `full` mode).
+  Also fixed a stale test from last session: `cli.rs`'s
+  `export_is_not_wired_yet_and_falls_through_to_unknown_command` asserted behavior that's no
+  longer true now that `export merged` works; replaced with `run_cli_dispatches_export_to_
+  run_export` (exercised via `--help`, which is safe — a bare `export` with no explicit mode
+  would hit `run_export`'s real-`$HOME`-touching default-path branch, same non-hermeticity
+  reason `run_validate`'s equivalent branch was never unit-tested either) plus dedicated
+  `run_export` tests (help, unexpected-argument rejection, `full` mode, invalid mode).
+  Tests: 5 new unit tests in `service.rs` (merges dir + strips `config_version`, merges a
+  settings.toml sidecar with override precedence, bails on a config-dir syntax error, bails on
+  a sidecar syntax error, handles a missing settings path gracefully) and 4 new in `cli.rs`
+  (`run_export`'s help/argument-rejection/full-mode/invalid-mode paths). Extended
+  `noctalia-shell/tests/cli_test.rs` (the real-binary subprocess suite added after last
+  session's review) with 3 more: `export merged` against an isolated empty `XDG_CONFIG_HOME`
+  (empty output), against one with a `config_version`-tagged bar file (strips the version key,
+  keeps `thickness = 42`), and `export full`'s not-implemented error — all three set
+  `XDG_CONFIG_HOME`/`XDG_STATE_HOME` to a per-test temp dir rather than touching this machine's
+  real config, unlike the case task 4.2.2's tests already avoided testing (the default-path
+  branch) for the same reason.
+  `just check` clean (265 tests green: 253 in noctalia-config incl. new service.rs/cli.rs
+  tests, 6 in noctalia-shell's `cli_test.rs`, everything else unchanged from session 44's count).
+  Manual checks against the compiled `target/debug/noctalia-shell` binary (beyond the automated
+  subprocess tests, exploratory before writing the tests): `config export merged` against an
+  empty isolated `XDG_CONFIG_HOME`/`XDG_STATE_HOME` (empty output, exit 0); against a config dir
+  with `config_version = 3` + `[bar.default] thickness = 42` (output correctly `[bar.default]\n
+  thickness = 42\n`, no `config_version`, exit 0); `config export full` (the documented
+  not-implemented error, exit 1); `config export bogus-mode` ("expected merged or full", exit
+  1); `config export --help` (text matches `kExportHelpText` verbatim).
+  Pre-done review (rule 3, fresh subagent): independently re-derived `mergeUserConfigSources`'s
+  bail-vs-warn branching from `config_service.cpp:505-512` rather than trusting this session's
+  own account, confirmed `config_version` stripping happens on the correct (final, combined)
+  table in the correct order, confirmed `deep_merge`'s overlay direction (sidecar wins) and that
+  `normalizeLegacyConfig`'s issues are discarded matching the C++, checked `run_export`'s
+  argument parsing and output formatting byte-for-byte, spot-verified every "already exists in
+  Rust" claim in the 4.2.3b plan re-scoping via direct grep rather than trusting the write-up,
+  and ran `just check` independently (clean at review time). Two real findings, both fixed
+  above: (1) blocking — `merge_user_config_sources`'s bail loop only checked for `Error`-severity
+  migration diagnostics, silently dropping the C++'s unconditional `kLog.warn` for non-Error
+  entries (`config_service.cpp:509-511` logs *outside* the `error != nullptr` guard, i.e. even
+  in the CLI's bail mode) — a user with an old-format `settings.toml` sidecar would get a
+  silently swallowed warning instead of the C++'s logged one; fixed by adding the `LOG.warn` call
+  for non-Error entries before the bail check. (2) nitpick, fixed — the sidecar-migration-error
+  bail branch (as opposed to sidecar-syntax-error) had no test; added
+  `build_merged_user_config_from_sources_bails_on_sidecar_migration_error` (`config_version =
+  -1`, which `stored_config_version` rejects with an Error-severity diagnostic per
+  `migrations.rs:705-712`). Re-ran `just check` clean after both fixes (254 tests in
+  noctalia-config, up from 253).
+Half-finished: nothing (4.2.3b is explicitly re-scoped and left unchecked in MIGRATION_PLAN.md,
+  not partial work — see its entry there for exactly what's wired vs. blocked and why).
+Next step: task 4.2.4 (settings-count) or 4.2.5 (replay-report) — independent of each other and
+  of 4.2.3b/4.2.6/4.2.7, pick whichever; 4.2.4 needs a first check of whether Phase 14's settings
+  registry has landed since this was last looked at (it hadn't, as of this session).
+
 
 
 

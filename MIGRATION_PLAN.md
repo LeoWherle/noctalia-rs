@@ -513,22 +513,46 @@ by design).
     stay unreachable until 2.4.2/2.4.3 land (blocked on the same Phase 13/14
     widget/launcher registries) — note that explicitly rather than skipping
     silently.
-  - [ ] 4.2.3 config CLI: `export` (merged + full) — `export merged` needs a new
-    `ConfigService::build_merged_user_config_from_sources` (port of
-    `config_service.cpp`'s `mergeUserConfigSources` + `buildMergedUserConfigFromSources`,
+  - [x] 4.2.3a config CLI: `export merged` — new `noctalia-config::service::
+    build_merged_user_config_from_sources` (port of `config_service.cpp`'s private
+    `mergeUserConfigSources` helper + `ConfigService::buildMergedUserConfigFromSources`,
     bail-on-first-error semantics, genuinely different from validate's
-    diagnostic-accumulating `mergeSources`). `export full` needs
-    `buildEffectiveConfigFromSources`, which needs a `parseConfigTable`/
-    `makeDefaultConfig` equivalent — blocked on closing a parity gap discovered
-    while scoping this task: `noctalia-config::service::ConfigService::load_all`
-    (task 2.9) is not a full `parseConfigTable` port (missing `[bar.*].order`
-    reordering, `[widget.*]` named-instance parsing, default-seeding-when-absent
-    for session actions/control-center shortcuts/plugin sources/idle behaviors,
-    and launcher `provider_prefix` resolution) — close that gap as part of this
-    subtask, in `load_all` itself (single source of truth) rather than a second
-    duplicate parser. Done: `config export full | config validate -` round-trips
-    with zero warnings against a config-file-free `XDG_CONFIG_HOME`, matching
-    `config_validate_cli_test.sh`'s export section.
+    diagnostic-accumulating `mergeSources` — do not conflate). Done: ported,
+    tested (unit + a real-binary subprocess test in `noctalia-shell/tests/
+    cli_test.rs`), manually verified against both an empty and a populated
+    isolated `XDG_CONFIG_HOME`.
+  - [ ] 4.2.3b config CLI: `export full` — needs `ConfigService::
+    buildEffectiveConfigFromSources`, which needs a `parseConfigTable`/
+    `makeDefaultConfig` equivalent. Reading `parseConfigTable`
+    (`config_service.cpp:1556-1815`) end-to-end while scoping 4.2.3a showed the
+    gap is deeper than first estimated: most of the *pure* pieces already exist
+    in Rust and just aren't wired into `ConfigService::load_all` yet
+    (`[bar.*].order` reordering; `[widget.*]` named instances via the
+    already-ported `types::widget::read_bar_widget_config`; default-seeding-
+    when-absent for session actions/control-center shortcuts/plugin
+    sources/idle behaviors via the already-ported `default_session_panel_actions`/
+    `default_control_center_shortcuts`/`default_plugin_sources`/
+    `default_idle_behaviors`; lifted template custom colors via the
+    already-ported `schema::config_schema::lift_template_config_custom_colors`;
+    launcher `provider_prefix` empty→'/' fallback, trivial) — but two pieces are
+    hard-blocked, not just unwired: `[widget.*]`'s `validateWidgetSettings` and
+    `[desktop_widgets]`/`[lockscreen_widgets]`'s `parseWidgetsPlacementSection`
+    both need per-widget-type setting schemas (`desktop_settings::
+    desktopWidgetSettingSchema` and equivalents) that don't exist in Rust yet —
+    the same Phase 13/14/15 widget-type-registry blocker 2.4.2 already
+    identified, not a new one; and the launcher-provider-filtering loop touches
+    `launcher::kBuiltinProviders` (task 14.1) and `scripting::isValidPluginId`/
+    `isValidPluginIdSegment` (out-of-scope `src/scripting/` per the ground
+    rules) directly, unconditionally, at compile time — there is no way to
+    write the Rust equivalent without at least a minimal, deliberate pull-
+    forward of those two validator functions (small, string-only; check
+    whether that crosses the "out of scope" line before doing it) once 14.1
+    lands. Do this once Phase 13/14/15 land, extending `load_all` itself
+    (single source of truth) rather than a second duplicate parser — the
+    unblocked pieces above are exactly what to wire in first. Done: `config
+    export full | config validate -` round-trips with zero warnings against a
+    config-file-free `XDG_CONFIG_HOME`, matching `config_validate_cli_test.sh`'s
+    export section.
   - [ ] 4.2.4 config CLI: `settings-count` — needs
     `shell::settings::settings_registry` (`buildSettingsRegistry`/`SettingEntry`,
     3546-line `settings_registry.cpp`). Blocked on Phase 14 (settings window UI).

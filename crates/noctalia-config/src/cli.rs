@@ -1,12 +1,14 @@
 //! `noctalia config` CLI entry point.
-//! Partial port of `src/config/cli.{cpp,h}` — task 4.2.2 only.
+//! Partial port of `src/config/cli.{cpp,h}` — tasks 4.2.2 (`validate`) and 4.2.3
+//! (`export merged`) only.
 //!
-//! Only `validate` and top-level `--help` are wired here. `export`/`settings-count`/
-//! `replay-report` are documented in [`HELP_TEXT`] (ported verbatim, matching the C++'s full
-//! surface — MIGRATION_PLAN.md's own "done" bar for this task is the `--help` text matching,
-//! not every subcommand working) but fall through to the same "unknown config command" error a
-//! genuine typo would hit, until tasks 4.2.3 (`export`), 4.2.4 (`settings-count`, blocked on
-//! Phase 14's settings registry), and 4.2.5 (`replay-report`) land.
+//! `validate` and `export merged` are wired. `export full` falls through to its own explicit
+//! "not implemented yet" error (see [`run_export`] — it needs a `parseConfigTable`/
+//! `makeDefaultConfig` equivalent whose launcher-provider step is blocked on task 14.1, not just
+//! more plumbing; MIGRATION_PLAN.md task 4.2.3 has the full accounting).
+//! `settings-count`/`replay-report` are documented in [`HELP_TEXT`] (ported verbatim, matching
+//! the C++'s full surface) but fall through to the same "unknown config command" error a genuine
+//! typo would hit, until tasks 4.2.4 (blocked on Phase 14's settings registry) and 4.2.5 land.
 
 use std::io::IsTerminal;
 use std::path::Path;
@@ -14,6 +16,7 @@ use std::path::Path;
 use noctalia_core::log::{LogLevel, set_log_level};
 
 use crate::schema::diagnostics::{Diagnostics, Severity};
+use crate::service::build_merged_user_config_from_sources;
 use crate::validate::{validate_config_file, validate_config_sources};
 
 // NOTE: these are plain multi-line string literals, not `\`-continued lines — a `\` at the end
@@ -51,6 +54,17 @@ With a file path, validates only that file.
 
 Reports TOML syntax errors, unknown sections/settings, and bad values
 (wrong type, out-of-range, invalid enum/color). Exits 1 if any error is found.
+";
+
+const EXPORT_HELP_TEXT: &str = "Usage: noctalia config export [merged|full]
+
+Prints TOML to stdout from the same config stack used by the shell:
+  - every *.toml in the active config dir, then
+  - the state-dir settings.toml overrides.
+
+Modes:
+  merged  Export merged user config only (default)
+  full    Export full effective config, including built-in defaults
 ";
 
 /// Port of `useColor` (`cli.cpp:425-428`): color only when the stream is a terminal and
@@ -111,6 +125,57 @@ fn run_validate(args: &[String]) -> i32 {
     };
 
     print_validate_report(&diagnostics)
+}
+
+/// Port of `runExport` (`cli.cpp:509-551`). `full` mode is not implemented yet — see the module
+/// doc comment for why.
+fn run_export(args: &[String]) -> i32 {
+    let mut mode = "merged".to_string();
+    let mut mode_set = false;
+    for arg in args {
+        if arg == "--help" {
+            println!("{EXPORT_HELP_TEXT}");
+            return 0;
+        }
+        if !mode_set {
+            mode = arg.clone();
+            mode_set = true;
+            continue;
+        }
+        eprintln!("error: unexpected argument: {arg}");
+        eprintln!("Run 'noctalia config export --help' for usage.");
+        return 1;
+    }
+
+    if mode == "full" {
+        eprintln!(
+            "error: `config export full` is not implemented yet (see MIGRATION_PLAN.md task 4.2.3)"
+        );
+        return 1;
+    }
+    if mode != "merged" {
+        eprintln!("error: expected merged or full");
+        return 1;
+    }
+
+    let config_dir = noctalia_core::files::paths::config_dir();
+    let state_dir = noctalia_core::files::paths::state_dir();
+    let settings_path = if state_dir.is_empty() {
+        String::new()
+    } else {
+        format!("{state_dir}/settings.toml")
+    };
+
+    match build_merged_user_config_from_sources(Path::new(&config_dir), Path::new(&settings_path)) {
+        Ok(content) => {
+            print!("{content}");
+            0
+        }
+        Err(err) => {
+            eprintln!("error: {err}");
+            1
+        }
+    }
 }
 
 /// Port of the diagnostic-printing and exit-code half of `runValidate`
@@ -179,6 +244,10 @@ pub fn run_cli(args: &[String]) -> i32 {
         return run_validate(&args[1..]);
     }
 
+    if args[0] == "export" {
+        return run_export(&args[1..]);
+    }
+
     eprintln!("error: unknown config command: {}", args[0]);
     eprintln!("Run 'noctalia config --help' for usage.");
     1
@@ -205,9 +274,33 @@ mod tests {
     }
 
     #[test]
-    fn export_is_not_wired_yet_and_falls_through_to_unknown_command() {
-        // Documented in the module doc comment: real behavior lands in task 4.2.3.
-        assert_eq!(run_cli(&["export".to_string()]), 1);
+    fn run_cli_dispatches_export_to_run_export() {
+        // `--help` is safe to exercise through the full `run_cli` dispatch (unlike a bare
+        // `export`, which would fall to `run_export`'s default-path branch and touch this
+        // process's real `$HOME`/`$XDG_CONFIG_HOME` — not exercised by any unit test here, same
+        // as `run_validate`'s equivalent default-path branch; see the manual check in
+        // PROGRESS.log instead).
+        assert_eq!(run_cli(&["export".to_string(), "--help".to_string()]), 0);
+    }
+
+    #[test]
+    fn export_help_flag_succeeds() {
+        assert_eq!(run_export(&["--help".to_string()]), 0);
+    }
+
+    #[test]
+    fn export_unexpected_second_argument_fails() {
+        assert_eq!(run_export(&["merged".to_string(), "extra".to_string()]), 1);
+    }
+
+    #[test]
+    fn export_full_mode_is_not_implemented_yet() {
+        assert_eq!(run_export(&["full".to_string()]), 1);
+    }
+
+    #[test]
+    fn export_invalid_mode_fails() {
+        assert_eq!(run_export(&["bogus-mode".to_string()]), 1);
     }
 
     #[test]
