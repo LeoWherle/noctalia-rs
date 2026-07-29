@@ -195,9 +195,12 @@ by design).
     fd-target bucketing (`socket:`/`pipe:`/`memfd:`/long-path truncation) and a smoke
     test that `raiseOpenFileLimit` doesn't lower the soft limit and
     `describeOpenFileDescriptors` output is well-formed.
-- [ ] 1.7 Misc core — src: `src/core/random.h`, `scoped_timer.h`, `build_info.*`,
-  `ui_phase.*`, `src/debug/*` → `core::{random,build_info,ui_phase}`. Done: compiles,
+- [x] 1.7 Misc core — src: `src/core/random.h`, `scoped_timer.h`, `build_info.*`,
+  `ui_phase.*` → `core::{random,profiling,build_info,ui_phase}`. Done: compiles,
   trivial unit tests, `git_revision` generated via `build.rs` (no network).
+  `src/debug/*` (`DebugService`, the `dev.noctalia.Debug` D-Bus service) split out
+  to 6.11 — it depends on D-Bus bus plumbing and a notification manager, neither
+  of which exist yet this early in the migration.
 - [ ] 1.8 i18n — src: `src/i18n/*` (6 files) → `core::i18n`. Done: port
   `tests/i18n_language_tag_test.cpp` + `tests/i18n_supported_languages_test.cpp`.
 - [ ] 1.9 Time/clock formatting — src: `src/time/*` (5 files) → `core::time` on `jiff`.
@@ -312,6 +315,14 @@ by design).
 - [ ] 6.10 Polkit agent (protocol only) — src: `src/dbus/polkit/*` → `dbus::polkit`:
   agent registration + BeginAuthentication plumbing; PAM answering lands in 13.x UI
   phase. Done: agent registers against a mock authority; session objects tracked.
+- [ ] 6.11 Debug D-Bus service — src: `src/debug/debug_service.{cpp,h}` →
+  `dbus::debug` (or similar): serves `dev.noctalia.Debug`
+  (`EmitInternalNotification`/`SetVerboseLogs`/`GetVerboseLogs`). Split out of 1.7
+  (see its note) since it needs 6.1's bus plumbing plus a ported notification
+  manager — there's no dedicated task for that yet (it folds under 6.7 or
+  wherever `NotificationManager` lands; revisit when scheduling this task). Done:
+  mock-bus test round-trips all three methods; `SetVerboseLogs` observably
+  changes `core::log`'s level.
 
 ### Phase 7 — Networking, calendar, secrets (`crates/noctalia-net`, `crates/noctalia-calendar`)
 - [ ] 7.1 HTTP layer — src: `src/net/*` (7 files) → `net::http`. Phase A FFI: `curl`
