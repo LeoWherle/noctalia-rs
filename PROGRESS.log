@@ -1643,3 +1643,110 @@ Done: Task 2.3, checked off in MIGRATION_PLAN.md.
 Half-finished: nothing.
 Next step: task 2.4 Validation — `src/config/config_validate.{cpp,h}` → `config::validate`.
 
+## 2026-07-29 (session 30)
+Attempted: task 2.4 Validation — `src/config/config_validate.{cpp,h}` → `config::validate`.
+Done: 2.4.1 only, flipped in MIGRATION_PLAN.md; 2.4 split into 2.4.1-2.4.5 (plan
+  edit, same protocol as session 8's 1.6 split): reading `config_validate.cpp`
+  showed it pulls in most of the shell's config-consuming surface — the bar/
+  desktop/lockscreen widget-type setting registries (`shell/settings/
+  widget_settings_registry.*`, `shell/desktop/desktop_widget_settings_registry.*`,
+  ~2100 lines, Phase 13/14/15, not ported), the launcher provider list (task
+  14.1, not ported), the plugin registry (`src/scripting/*`, out of migration
+  scope per the ground rules), and `time/time_format.h`'s `isValidTimezone` (not
+  ported) — plus real, direct calls into `config_merge`/`config_migrations`
+  (tasks 2.5/2.6, not ported) from its two whole-source entry points. Split into
+  2.4.1 (this session: the portable-now slice) through 2.4.5 (the rest, gated on
+  their owning phases/tasks — see MIGRATION_PLAN.md for the full per-subtask
+  breakdown and blocking dependencies).
+  New `noctalia-config::validate` (`crates/noctalia-config/src/validate.rs`):
+  `check_section` (port of `checkSection` — unknown keys + `checkAgainstDefaults`
+  over every `schema::sections()` entry), `validate_include_shape`,
+  `validate_calendar_syntax`, `validate_location` (needs
+  `day_night_schedule::normalizedClock`, `src/system/day_night_schedule.cpp` — a
+  ~15-line pure HH:MM format check with no scheduling logic attached; pulled
+  forward as a private helper, same "minimal piece" pattern as 2.1.3's
+  `KeyChord` POD, leaving the rest of that C++ file for task 5.6), `validate_bars`
+  (bar/monitor-override *schema* only, both already ported — not
+  `validateBarWidgets`, which needs Phase 13), and `validate_merged_config`
+  wiring only the above (deliberately not `validateBarWidgets`/
+  `validateDesktopWidgets`/`validateLockscreenWidgets`/
+  `validateLauncherProviders`/`validatePluginSettings` — see 2.4.2-2.4.4).
+  Pre-done review (rule 3, fresh subagent) first pass found a real FAIL-level
+  bug, not in this task's own logic but exposed by it: `validate_merged_config`
+  run against the real repo-root `example.toml` produced ~30 false-positive
+  "unknown setting" warnings, all traced to incompleteness bugs in
+  already-committed task 2.3's per-section schemas in
+  `crates/noctalia-config/src/schema/config_schema.rs`. Fixed all of them in
+  this same session (matching the project's established precedent — e.g.
+  session 12 fixing a flake it found in already-committed 1.6.3 code — of
+  fixing real bugs a new task's own correctness bar reopens in already-shipped
+  code, rather than working around them): `shell_animation_schema`/
+  `shell_shadow_schema` were missing `enabled`/`alpha`; `shell_panel_schema` was
+  missing 14 of 22 real fields (`borders`, `shadow`, `list_item_background`, 5 of
+  6 placement fields, 5 of 6 position fields, `floating_offset`, all 5
+  `open_near_click_*` bools); `shell_launcher_schema` was missing `categories`/
+  `show_icons`/`app_grid`/`fetch_exchange_rates`/`auto_paste`, AND (found
+  independently while fixing the rest, not on the review's list) its
+  `providers` field used `array_of` — which only ever matches a TOML *array* —
+  where the real shape is `[shell.launcher.providers.<name>]`, a table of named
+  sub-tables, meaning real provider configs were silently never read into
+  `LauncherConfig::providers` at all; fixed to `named_map`, matching
+  `config_schema.cpp`'s `shellLauncherSchema` exactly (verified the
+  `toLower(name)`/`readSkipEmptyName=false` details against the C++ too).
+  `wallpaper_automation_schema` was missing `recursive`. `templates_schema` was
+  missing `enable_community_templates`/`community_ids` and used TOML key
+  `"user_template"` instead of the real `"user"` (confirmed against
+  `example.toml`'s commented-out `[theme.templates.user.my_app]`).
+  `control_center_schema` used wrong TOML keys `"sidebar_mode"`/
+  `"sidebar_section_mode"`/`"calendar_tab"` instead of the real `"sidebar"`/
+  `"sidebar_section"`/`"calendar"` (the `ControlCenterConfig` struct's own
+  `#[serde(rename = ...)]` attributes already had the real names right — only
+  the separate declarative schema engine's key registration was wrong) and was
+  missing `width`/`show_shortcut_labels`/`hidden_tabs` entirely.
+  `keybinds_schema` was an empty `Vec` — the real C++ `keybindActionField`
+  parses via `parseKeyChordSpec`, which needs `xkbcommon` FFI (task 10.2, not
+  ported); fixed with 8 no-op `custom_field`s (`validate`/`cancel`/`left`/
+  `right`/`up`/`down`/`tab_next`/`tab_previous`) whose only job is marking those
+  TOML keys *known* so `checkSection`'s unknown-key scan stops flagging every
+  `[keybinds]` entry — task 10.2 replaces the no-op closures with the real
+  parsing bridge. Also found and fixed a pre-existing bug one level up: a
+  task-2.3 roundtrip test asserted `check_path("control_center.sidebar_mode")`
+  should resolve — that string appears nowhere in the C++ test suite; it was a
+  mechanical (and wrong) snake_case guess from the struct member name rather
+  than the schema's real registered key. Fixed to assert
+  `"control_center.sidebar"`.
+  Strengthened `validate.rs`'s whole-config test from "no fatal errors" to
+  `whole_example_toml_produces_zero_diagnostics` (asserts `diag.entries.
+  is_empty()`) now that it's actually true, and added
+  `shell_launcher_providers_are_populated_via_named_map_not_array_of` (a
+  regression test proving both the provider-population fix and that unknown
+  keys inside a provider's own table are still caught).
+  Second fresh-context review (rule 3, fresh subagent, verification pass):
+  independently checked all 9 fixes field-by-field against
+  `config_schema.cpp` (exact TOML key names, full field-list completeness,
+  exact range bounds against `ranges.h`, and that the `named_map`/`array_of`/
+  `sub_table` choice — not just field presence — matches each field's real TOML
+  shape), cross-checked every touched struct against its schema for any
+  still-missing field (none found), ran `just check` independently (clean,
+  216 tests in `noctalia-config`), and independently re-confirmed the
+  zero-diagnostics claim isn't vacuous (injected a bogus key, confirmed it's
+  still caught). One pre-existing, unrelated doc-comment nit noted but not
+  actioned: `TemplatesConfig`'s doc comment in `types/theme.rs` still names the
+  old (pre-2.1.9) `custom_color`/`template` map-key spelling instead of the
+  code's actual `custom_colors`/`user` — comment-only, behavior is already
+  correct. Verdict PASS.
+  Task 2.3's own checkbox is deliberately not reopened — these were the
+  specific gaps task 2.4.1's own correctness bar exposed, not a full re-audit;
+  other latent gaps may still exist in the sections of `config_schema.rs`
+  this task didn't touch.
+Half-finished: nothing.
+Next step: task 2.4.2 (bar/desktop/lockscreen widget-type validation —
+  `validateBarWidgets`/`validateDesktopWidgets`/`validateLockscreenWidgets` +
+  the `invalid-timezone.toml` case). Blocked on Phase 13's
+  `shell::settings::widget_settings_registry`/`shell::desktop::
+  desktop_widget_settings_registry` and Phase 15's lockscreen widget list
+  existing in Rust first — likely not the literal next task to pick up given
+  that blocker; check what Phase 5/6 work (system monitors, D-Bus) is next in
+  dependency order instead, or re-read MIGRATION_PLAN.md's phase ordering to
+  decide.
+

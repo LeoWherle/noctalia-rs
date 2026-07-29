@@ -331,6 +331,86 @@ by design).
 - [ ] 2.4 Validation — src: `src/config/config_validate.{cpp,h}` → `config::validate`.
   Done: port `tests/config_validate/*` and `config_validate_cli_test.sh` cases as Rust
   tests; identical accept/reject verdicts.
+  **Split (session 30, discovered `config_validate.cpp` pulls in most of the
+  shell's config-consuming surface, most of it un-ported and phases away)**:
+  - [x] 2.4.1 Core section/schema validation — the portable-now slice of
+    `validateMergedConfig`/`appendMergedConfigDiagnostics`: `checkSection` over
+    every registered `schema::sections()` entry (unknown keys +
+    `checkAgainstDefaults`), the unknown-top-level-key check
+    (`schema::isKnownRootKey`), `validateIncludeShape`, `validateCalendarSyntax`,
+    `validateBars` (bar/monitor-override *schema* only —
+    `BarConfig`/`BarMonitorOverride` via `barFieldsSchema`/
+    `barMonitorOverrideSchema`, already ported in 2.1.2/2.3 — NOT
+    `validateBarWidgets`, which needs Phase 13's widget-type registry).
+    `validateLocation` needs `day_night_schedule::normalizedClock`
+    (`src/system/day_night_schedule.cpp`), a tiny (~15-line) pure HH:MM format
+    check with no `system::day_night` scheduling logic attached — pulled forward
+    as a private helper (same "minimal piece" pattern as 2.1.3's `KeyChord` POD),
+    leaving `GeoCoordinates`/`resolveCoordinates`/`evaluate`/`isManualMode`/
+    `hasUsableCustomTimes` for task 5.6 (system services audit) to port for real.
+    Done: unit tests against `validate_merged_config`/the individual check
+    functions fed a `toml::Table` directly (no CLI, no merge, no migrations yet)
+    covering the subset of `tests/config_validate/*` cases these paths reach.
+    Fresh-context review (rule 3) first-pass caught `validate_merged_config`
+    producing ~30 false-positive "unknown setting" warnings against the real
+    repo-root `example.toml`, all traced to incompleteness bugs in already-
+    committed task 2.3 schemas (not this task's own logic) — fixed in the same
+    session: `shell_animation_schema`/`shell_shadow_schema` missing
+    `enabled`/`alpha`; `shell_panel_schema` missing 14 of 22 fields;
+    `shell_launcher_schema` missing 5 fields *and* reading `providers` via
+    `array_of` instead of `named_map` (real shape is `[shell.launcher.
+    providers.<name>]`, a table of named sub-tables — `array_of` only matches a
+    TOML array, so provider configs were silently never read at all, found
+    independently while fixing the rest); `wallpaper_automation_schema` missing
+    `recursive`; `templates_schema` missing `enable_community_templates`/
+    `community_ids` and using TOML key `"user_template"` instead of the real
+    `"user"`; `control_center_schema` using wrong keys `"sidebar_mode"`/
+    `"sidebar_section_mode"`/`"calendar_tab"` instead of `"sidebar"`/
+    `"sidebar_section"`/`"calendar"` and missing `width`/`show_shortcut_labels`/
+    `hidden_tabs`; `keybinds_schema` entirely empty (real `keybindActionField`
+    needs `parseKeyChordSpec`, task 10.2's `xkbcommon` FFI — fixed with 8 no-op
+    `custom_field`s that only mark the keys *known*, deferring actual parsing).
+    A pre-existing roundtrip test asserting `check_path("control_center.
+    sidebar_mode")` was itself wrong (no such string exists in the C++ test
+    suite) — fixed to assert the real `"control_center.sidebar"` key. Second
+    fresh-context verification pass confirmed all 9 fixes against
+    `config_schema.cpp` field-by-field (keys, completeness, ranges,
+    `named_map`/`array_of`/`sub_table` shape) and re-ran `just check` clean;
+    `whole_example_toml_produces_zero_diagnostics` (strengthened from a
+    weaker no-fatal-errors check) is the regression guard. Task 2.3's
+    checkbox is not reopened — these were the specific gaps this task's own
+    correctness bar exposed, not a full re-audit; other latent gaps in
+    untouched sections of `config_schema.rs` may still exist.
+  - [ ] 2.4.2 Bar/desktop/lockscreen widget-type validation —
+    `validateBarWidgets`/`validateDesktopWidgets`/`validateLockscreenWidgets` (+
+    the `invalid-timezone.toml` case, needing `time/time_format.h`'s
+    `isValidTimezone`). Blocked on Phase 13's `shell::settings::
+    widget_settings_registry`/`shell::desktop::desktop_widget_settings_registry`
+    (widget-type → setting-schema tables for every built-in widget, 1595+494
+    lines) and Phase 15's lockscreen widget list existing in Rust first. Do this
+    alongside/after whichever of those lands.
+  - [ ] 2.4.3 Launcher provider validation — `validateLauncherProviders` (the
+    `warn-only.toml` provider cases). Blocked on task 14.1 (`launcher::
+    kBuiltinProviders` + real provider config). The plugin-provider branch
+    (`scripting::isValidPluginId`/enabled-plugins check) is scripting-adjacent —
+    port it behind a `// PLUGIN-STUB` marker per the ground-rules scripting
+    policy (treat every plugin-tagged provider as "not a plugin" rather than
+    pulling in `scripting::isValidPluginId`), not a full plugin-registry
+    integration.
+  - [ ] 2.4.4 Plugin settings validation — `validatePluginSettings`. Out of
+    scope per ground rules (exists only to serve the plugin system) —
+    `// PLUGIN-STUB`, do not port; `plugin_settings.*` tables in a validated
+    config always pass silently.
+  - [ ] 2.4.5 Whole-source validation entry points —
+    `validateConfigSources`/`validateConfigFile` (`mergeSources`,
+    `formatParseError`, the `syntax-error.toml`/`generated-config`/
+    exported-full-config CLI cases). Blocked on task 2.5 (merge,
+    `mergeConfigWithIncludes`/`ConfigService::deepMerge`) and 2.6 (migrations,
+    `normalizeLegacyConfig`/`storedConfigVersion`/`applyPendingConfigMigrations`)
+    — both are real, direct calls in these two functions, not incidental. Do
+    after 2.5+2.6 land. The CLI-level `config_validate_cli_test.sh` (needs a real
+    `noctalia config validate` binary + `config export full`, task 2.7) is the
+    final done-bar for this subtask, not for 2.4 as a whole.
 - [ ] 2.5 Merge & overrides — src: `config_merge.{cpp,h}`, `config_overrides.cpp` →
   `config::merge`. Done: ported merge tests; deep-merge semantics identical.
 - [ ] 2.6 Migrations — src: `config_migrations.{cpp,h}` → `config::migrations` using

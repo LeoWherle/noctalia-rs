@@ -39,7 +39,13 @@ fn is_known_config_path_identifies_valid_and_invalid_paths() {
     assert!(check_path("hot_corners.top_left.action"));
     assert!(check_path("brightness.enable_ddcutil"));
     assert!(check_path("battery.warning_threshold"));
-    assert!(check_path("control_center.sidebar_mode"));
+    // Real TOML key is "sidebar" (`config_schema.cpp:491`'s
+    // `enumField(&ControlCenterConfig::sidebarMode, "sidebar", ...)`), not a
+    // mechanical snake_case of the struct member name — no such path string
+    // exists in the C++ `tests/config_schema_roundtrip_test.cpp` this file
+    // otherwise ports from; this assertion was originally guessed wrong (task
+    // 2.3) and surfaced by task 2.4.1's `control_center_schema` field-completeness fix.
+    assert!(check_path("control_center.sidebar"));
     assert!(check_path("plugins.auto_update"));
     assert!(check_path("calendar.enabled"));
     assert!(check_path("hooks.started"));

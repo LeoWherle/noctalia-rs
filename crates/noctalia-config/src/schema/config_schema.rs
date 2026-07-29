@@ -1628,18 +1628,26 @@ fn calendar_tab_schema() -> &'static Schema<CalendarTabConfig> {
 pub fn control_center_schema() -> &'static Schema<ControlCenterConfig> {
     static S: LazyLock<Schema<ControlCenterConfig>> = LazyLock::new(|| {
         vec![
+            string_field("sidebar", |s| &s.sidebar_mode, |s, v| s.sidebar_mode = v),
             string_field(
-                "sidebar_mode",
-                |s| &s.sidebar_mode,
-                |s, v| s.sidebar_mode = v,
-            ),
-            string_field(
-                "sidebar_section_mode",
+                "sidebar_section",
                 |s| &s.sidebar_section_mode,
                 |s, v| s.sidebar_section_mode = v,
             ),
+            i32_field(
+                "width",
+                |s| s.width,
+                |s, v| s.width = v,
+                Some(CONTROL_CENTER_WIDTH_RANGE),
+            ),
+            bool_field(
+                "show_shortcut_labels",
+                |s| s.show_shortcut_labels,
+                |s, v| s.show_shortcut_labels = v,
+            ),
+            string_vec_field("hidden_tabs", |s| &s.hidden_tabs, |s, v| s.hidden_tabs = v),
             sub_table(
-                "calendar_tab",
+                "calendar",
                 |s| &s.calendar_tab,
                 |s, v| s.calendar_tab = v,
                 calendar_tab_schema(),
@@ -1812,8 +1820,31 @@ pub fn calendar_schema() -> &'static Schema<CalendarConfig> {
 }
 
 /// Keybinds section schema.
+/// `keybindActionField` (`config_schema.cpp:763-819`) parses each key's
+/// string/array-of-strings value via `parseKeyChordSpec`, which needs `xkbcommon`
+/// FFI — task 10.2's job (see `KeybindsConfig`'s own doc comment in
+/// `types/keybinds.rs`). Until then these 8 fields only mark the real TOML keys
+/// as *known* (so `checkSection`'s unknown-key scan doesn't flag every
+/// `[keybinds]` entry as unrecognized) — they don't parse or write anything. Task
+/// 10.2 replaces these no-op read/write closures with the real
+/// `parseKeyChordSpec` bridge.
 pub fn keybinds_schema() -> &'static Schema<KeybindsConfig> {
-    static S: LazyLock<Schema<KeybindsConfig>> = LazyLock::new(Vec::new);
+    static S: LazyLock<Schema<KeybindsConfig>> = LazyLock::new(|| {
+        vec![
+            custom_field("validate", |_, _: &mut KeybindsConfig, _, _| {}, |_, _| {}),
+            custom_field("cancel", |_, _: &mut KeybindsConfig, _, _| {}, |_, _| {}),
+            custom_field("left", |_, _: &mut KeybindsConfig, _, _| {}, |_, _| {}),
+            custom_field("right", |_, _: &mut KeybindsConfig, _, _| {}, |_, _| {}),
+            custom_field("up", |_, _: &mut KeybindsConfig, _, _| {}, |_, _| {}),
+            custom_field("down", |_, _: &mut KeybindsConfig, _, _| {}, |_, _| {}),
+            custom_field("tab_next", |_, _: &mut KeybindsConfig, _, _| {}, |_, _| {}),
+            custom_field(
+                "tab_previous",
+                |_, _: &mut KeybindsConfig, _, _| {},
+                |_, _| {},
+            ),
+        ]
+    });
     &S
 }
 
@@ -1972,6 +2003,7 @@ fn wallpaper_automation_schema() -> &'static Schema<WallpaperAutomationConfig> {
                 |s, v| s.order = v,
                 WALLPAPER_ORDER_OPTIONS,
             ),
+            bool_field("recursive", |s| s.recursive, |s, v| s.recursive = v),
         ]
     });
     &S
@@ -2302,6 +2334,16 @@ fn templates_schema() -> &'static Schema<TemplatesConfig> {
                 |s, v| s.enable_builtin_templates = v,
             ),
             string_vec_field("builtin_ids", |s| &s.builtin_ids, |s, v| s.builtin_ids = v),
+            bool_field(
+                "enable_community_templates",
+                |s| s.enable_community_templates,
+                |s, v| s.enable_community_templates = v,
+            ),
+            string_vec_field(
+                "community_ids",
+                |s| &s.community_ids,
+                |s, v| s.community_ids = v,
+            ),
             custom_field(
                 "custom_colors",
                 |tbl, out: &mut TemplatesConfig, _parent, _diag| {
@@ -2340,7 +2382,7 @@ fn templates_schema() -> &'static Schema<TemplatesConfig> {
                 },
             ),
             named_map(
-                "user_template",
+                "user",
                 |s| &s.user_templates,
                 |s, v| s.user_templates = v,
                 user_template_schema(),
@@ -2404,23 +2446,25 @@ pub fn theme_schema() -> &'static Schema<ThemeConfig> {
 
 fn shell_animation_schema() -> &'static Schema<AnimationConfig> {
     static S: LazyLock<Schema<AnimationConfig>> = LazyLock::new(|| {
-        vec![f32_field(
-            "speed",
-            |s| s.speed,
-            |s, v| s.speed = v,
-            Some(ANIMATION_SPEED_RANGE),
-        )]
+        vec![
+            bool_field("enabled", |s| s.enabled, |s, v| s.enabled = v),
+            f32_field(
+                "speed",
+                |s| s.speed,
+                |s, v| s.speed = v,
+                Some(ANIMATION_SPEED_RANGE),
+            ),
+        ]
     });
     &S
 }
 
 fn shell_shadow_schema() -> &'static Schema<ShadowConfig> {
     static S: LazyLock<Schema<ShadowConfig>> = LazyLock::new(|| {
-        vec![string_field(
-            "direction",
-            |s| &s.direction,
-            |s, v| s.direction = v,
-        )]
+        vec![
+            string_field("direction", |s| &s.direction, |s, v| s.direction = v),
+            f32_field("alpha", |s| s.alpha, |s, v| s.alpha = v, Some(UNIT_RANGE)),
+        ]
     });
     &S
 }
@@ -2460,10 +2504,103 @@ fn shell_panel_schema() -> &'static Schema<PanelConfig> {
                 |s| &s.transparency_mode,
                 |s, v| s.transparency_mode = v,
             ),
+            bool_field("borders", |s| s.borders, |s, v| s.borders = v),
+            bool_field("shadow", |s| s.shadow, |s, v| s.shadow = v),
+            bool_field(
+                "list_item_background",
+                |s| s.list_item_background,
+                |s, v| s.list_item_background = v,
+            ),
             string_field(
                 "launcher_placement",
                 |s| &s.launcher_placement,
                 |s, v| s.launcher_placement = v,
+            ),
+            string_field(
+                "clipboard_placement",
+                |s| &s.clipboard_placement,
+                |s, v| s.clipboard_placement = v,
+            ),
+            string_field(
+                "control_center_placement",
+                |s| &s.control_center_placement,
+                |s, v| s.control_center_placement = v,
+            ),
+            string_field(
+                "wallpaper_placement",
+                |s| &s.wallpaper_placement,
+                |s, v| s.wallpaper_placement = v,
+            ),
+            string_field(
+                "session_placement",
+                |s| &s.session_placement,
+                |s, v| s.session_placement = v,
+            ),
+            string_field(
+                "polkit_placement",
+                |s| &s.polkit_placement,
+                |s, v| s.polkit_placement = v,
+            ),
+            string_field(
+                "launcher_position",
+                |s| &s.launcher_position,
+                |s, v| s.launcher_position = v,
+            ),
+            string_field(
+                "clipboard_position",
+                |s| &s.clipboard_position,
+                |s, v| s.clipboard_position = v,
+            ),
+            string_field(
+                "control_center_position",
+                |s| &s.control_center_position,
+                |s, v| s.control_center_position = v,
+            ),
+            string_field(
+                "wallpaper_position",
+                |s| &s.wallpaper_position,
+                |s, v| s.wallpaper_position = v,
+            ),
+            string_field(
+                "session_position",
+                |s| &s.session_position,
+                |s, v| s.session_position = v,
+            ),
+            string_field(
+                "polkit_position",
+                |s| &s.polkit_position,
+                |s, v| s.polkit_position = v,
+            ),
+            i32_field(
+                "floating_offset",
+                |s| s.floating_offset,
+                |s, v| s.floating_offset = v,
+                Some(Range::new(Some(0), Some(100), None)),
+            ),
+            bool_field(
+                "open_near_click_control_center",
+                |s| s.open_near_click_control_center,
+                |s, v| s.open_near_click_control_center = v,
+            ),
+            bool_field(
+                "open_near_click_launcher",
+                |s| s.open_near_click_launcher,
+                |s, v| s.open_near_click_launcher = v,
+            ),
+            bool_field(
+                "open_near_click_clipboard",
+                |s| s.open_near_click_clipboard,
+                |s, v| s.open_near_click_clipboard = v,
+            ),
+            bool_field(
+                "open_near_click_wallpaper",
+                |s| s.open_near_click_wallpaper,
+                |s, v| s.open_near_click_wallpaper = v,
+            ),
+            bool_field(
+                "open_near_click_session",
+                |s| s.open_near_click_session,
+                |s, v| s.open_near_click_session = v,
             ),
         ]
     });
@@ -2483,29 +2620,40 @@ fn launcher_provider_schema() -> &'static Schema<LauncherProviderConfig> {
 fn shell_launcher_schema() -> &'static Schema<LauncherConfig> {
     static S: LazyLock<Schema<LauncherConfig>> = LazyLock::new(|| {
         vec![
+            bool_field("categories", |s| s.categories, |s, v| s.categories = v),
+            bool_field("show_icons", |s| s.show_icons, |s, v| s.show_icons = v),
             bool_field("compact", |s| s.compact, |s, v| s.compact = v),
+            bool_field("app_grid", |s| s.app_grid, |s, v| s.app_grid = v),
             bool_field(
                 "sort_by_usage",
                 |s| s.sort_by_usage,
                 |s, v| s.sort_by_usage = v,
             ),
-            sub_table(
-                "dmenu",
-                |s| &s.dmenu,
-                |s, v| s.dmenu = v,
-                shell_launcher_dmenu_schema(),
+            bool_field(
+                "fetch_exchange_rates",
+                |s| s.fetch_exchange_rates,
+                |s, v| s.fetch_exchange_rates = v,
             ),
             string_field(
                 "provider_prefix",
                 |s| &s.provider_prefix,
                 |s, v| s.provider_prefix = v,
             ),
-            array_of(
+            string_field("auto_paste", |s| &s.auto_paste, |s, v| s.auto_paste = v),
+            sub_table(
+                "dmenu",
+                |s| &s.dmenu,
+                |s, v| s.dmenu = v,
+                shell_launcher_dmenu_schema(),
+            ),
+            named_map(
                 "providers",
                 |s| &s.providers,
                 |s, v| s.providers = v,
                 launcher_provider_schema(),
-                |p| !p.name.is_empty(),
+                |p, name| p.name = name.to_lowercase(),
+                |p| &p.name,
+                false,
             ),
         ]
     });
