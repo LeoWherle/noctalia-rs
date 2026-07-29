@@ -301,7 +301,7 @@ by design).
     `BatteryDeviceWarningThreshold`, `NightLightConfig`, `LocationConfig`,
     `StorageConfig`. Done: deserialize `[system.monitor]`, `[audio]`,
     `[brightness]`, `[nightlight]`, `[location]`.
-  - [ ] 2.1.8 Weather, calendar, hooks, control center — `WeatherConfig`,
+  - [x] 2.1.8 Weather, calendar, hooks, control center — `WeatherConfig`,
     `CalendarConfig` + `Account`, `HooksConfig`, `ControlCenterConfig` +
     `CalendarTabConfig`, `hookKindFromKey`/`hookKindKey`. Done: deserialize
     `[weather]`, `[calendar]`, `[control_center.calendar]`, `[hooks]`.

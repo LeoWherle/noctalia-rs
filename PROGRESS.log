@@ -1572,6 +1572,26 @@ Half-finished: nothing.
 Next step: task 2.1.8 (weather, calendar, hooks, control center — `WeatherConfig`, `CalendarConfig` + `Account`,
   `HooksConfig`, `ControlCenterConfig` + `CalendarTabConfig`, `hookKindFromKey`/`hookKindKey`).
 
+## 2026-07-29 (session 26)
+Attempted: task 2.1.8 — weather, calendar, hooks, control center configuration data models.
+Done: 2.1.8, flipped in MIGRATION_PLAN.md. Four new submodules in `noctalia-config::types`:
+  - `weather` (`crates/noctalia-config/src/types/weather.rs`): `WeatherConfig` (refresh_minutes: 30, unit: "metric", effects: true).
+  - `calendar` (`crates/noctalia-config/src/types/calendar.rs`): `CalendarCredentialSource` enum, `CalendarAccountConfig`,
+    and `CalendarConfig`.
+  - `hooks` (`crates/noctalia-config/src/types/hooks.rs`): `HookKind` enum (18 variants), `hook_kind_from_key`,
+    `hook_kind_key`, and `HooksConfig` (all 18 event command list vectors).
+  - `control_center` (`crates/noctalia-config/src/types/control_center.rs`): `CalendarTabConfig` and `ControlCenterConfig`.
+  Tests: 125 tests passing in `noctalia-config` (up from 113). Lossless deserialization tests for `[weather]`, `[calendar]`,
+  `[control_center.calendar]`, `[hooks]` directly from `example.toml`; in-class defaults verification tests; `HookKind` key mapping tests.
+  Pre-done review (rule 3, fresh subagent): independently verified all 4 sections against C++ struct definitions and
+  `config_schema.cpp` field registrations; verified `HookKind` enum variants against C++ `kHookKinds`;
+  ran `just check` independently (clean). Verdict PASS.
+Half-finished: nothing.
+Next step: task 2.1.9 (theme, plugins, root `Config` — `ThemeConfig` + nested template structs, `PluginSourceConfig`/
+  `PluginsConfig`/`defaultPluginSources`/`isDefaultPluginSourceName`/`isValidPluginSourceName`, top-level `Config` struct,
+  and `ConfigChangeSet`). Deserializes the whole `example.toml` losslessly through the assembled `Config` struct!
+
+
 
 
 
