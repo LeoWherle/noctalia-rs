@@ -208,8 +208,93 @@ by design).
 
 ### Phase 2 — Config (`crates/noctalia-config`)
 - [ ] 2.1 Config data model — src: `src/config/config_types.{cpp,h}`,
-  `color_spec.h`, `config_limits.h` → serde structs in `config::types`. Done:
-  deserialize `example.toml` losslessly; defaults match C++ defaults (spot-check table).
+  `color_spec.h`, `config_limits.h` → serde structs in `config::types`. Split
+  (session: `config_types.h` is 1631 lines + 579 in the `.cpp`, ~50 nested
+  struct types across ~30 independent top-level `example.toml` sections —
+  comparable to task 1.6's `process.cpp` split, same reasoning): see
+  2.1.1-2.1.9 below, ordered so each subtask's structs have no forward
+  dependency on a later one. Every subtask's done bar is deserializing its
+  slice of `example.toml` losslessly + a defaults spot-check; only 2.1.9 (the
+  root `Config` struct) exercises the whole file, since only then does every
+  field exist.
+  - [ ] 2.1.1 Color primitives — src: `render/core/color.h`'s `Color`,
+    `ui/palette.h`'s `ColorRole`/`ColorRoleToken`/`ColorSpec` (**not**
+    `Palette`/scheme generation — that's task 3.1's full `theme::color`),
+    `config/color_spec.{h,cpp}` (`colorSpecFromConfigString`/
+    `colorSpecToConfigString`, actually implemented in `config_types.cpp`
+    despite being declared in `color_spec.h`), `config_limits.h`'s 4
+    clipboard-history constants. Placed in `noctalia-core` (new
+    `core::color`), not `noctalia-config` or `noctalia-theme`: both Phase 2
+    (this task) and Phase 3 (task 3.1) need the exact same small POD
+    (`role: Option<ColorRole>, fixed: Color, alpha: f32`) as their
+    foundation, and `noctalia-core` is the one crate both already depend on
+    — avoids a config↔theme crate dependency either direction. Done: parse/
+    serialize round-trip test for every `ColorRole` token + a handful of hex
+    strings from `example.toml`.
+  - [ ] 2.1.2 Bar & widget settings — `BarCapsuleGroupStyle`/
+    `BarDeadZoneOverride`/`BarMonitorOverride`/`BarDeadZoneConfig`/
+    `BarConfig`, `WidgetBarCapsuleSpec`, `WidgetConfig` (the settings-map
+    struct + its `findSetting`/`getString`/`getInt`/`getDouble`/`getBool`/
+    `getColorSpec`/`getOptionalColorSpec`/`getStringList`/`getStringMap`/
+    `hasSetting` accessors), the capsule-group reconciliation helpers
+    (`findBarCapsuleGroupStyle`/`capsuleSpecFromGroup`/
+    `capsuleGroupRefsForBarScope`/`capsuleGroupRefsForMonitorScope`/
+    `reconcileCapsuleGroups`/`isCapsuleGroupToken`/`capsuleGroupTokenId`/
+    `makeCapsuleGroupToken`/`resolveWidgetContentScale`/
+    `resolveWidgetBarCapsuleSpec`), `outputMatchesSelector`. Depends on
+    2.1.1 (`ColorSpec`) and on task 2.2's `WidgetSettingValue`
+    (`widget_setting_value.h` — `WidgetConfig::settings` is keyed by it and
+    won't compile without it): do 2.2 first, or pull just
+    `WidgetSettingValue` forward into this subtask if 2.2 hasn't landed
+    yet — check PROGRESS.log/plan state before starting. Done: deserialize
+    `[bar.main]`/`[dock]`'s widget-lane entries from `example.toml`;
+    capsule-group reconciliation gets its own unit tests (no C++ test
+    exists — verified via grep).
+  - [ ] 2.1.3 Shell config — `ShellConfig` + nested `AnimationConfig`/
+    `ShadowConfig`/`PanelConfig`/`LauncherConfig`/`ScreenCornersConfig`/
+    `MprisConfig`/`ScreenshotConfig`/`PrivacyConfig`, `ShellSessionConfig`
+    + `ShellSessionPowerConfig`, `ShellGreeterSyncConfig`,
+    `ShortcutConfig`, `SessionPanelActionConfig`, `DmenuEntryConfig`,
+    `LauncherProviderConfig`, `defaultSessionPanelActions`,
+    `defaultControlCenterShortcuts`. Done: deserialize `[shell]` and its
+    `[shell.*]` subtables from `example.toml`.
+  - [ ] 2.1.4 Wallpaper, backdrop, lockscreen, dock — `WallpaperMonitorOverride`/
+    `WallpaperAutomationConfig`/`WallpaperConfig`/`WallpaperFillMode`/
+    `WallpaperTransition`/`WallpaperFavorite`, `BackdropConfig`,
+    `LockscreenConfig`, `DockConfig`. Done: deserialize `[wallpaper]`,
+    `[backdrop]`, `[lockscreen]`, `[dock]`.
+  - [ ] 2.1.5 Desktop widgets, OSD, notifications — `DesktopWidgetsGridState`/
+    `DesktopWidgetState`/`DesktopWidgetsConfig`, `LockscreenWidgetsConfig`,
+    `OsdKindsConfig`/`OsdConfig`, `NotificationConfig`/
+    `NotificationFilterConfig`, `ShadowDirectionOffset`. Done: deserialize
+    `[desktop_widgets]`, `[osd]`/`[osd.kinds]`, `[notification]`.
+  - [ ] 2.1.6 Idle, keybinds, hotcorners, accessibility — `IdleBehaviorConfig`/
+    `IdleConfig`/`IdleActionRequest`/`ResolvedIdleBehavior`/
+    `defaultIdleBehaviors`/`commandIdleAction`/`idleAction`,
+    `KeybindsConfig`/`defaultKeybindSet`, `HotCornersConfig` + `Corner`,
+    `AccessibilityConfig`. Done: deserialize `[idle.behavior.*]`,
+    `[keybinds]`, `[accessibility]`; `defaultKeybindSet` spot-checked
+    against a few real `KeybindAction` values.
+  - [ ] 2.1.7 System, audio, brightness, battery, nightlight, location,
+    storage — `SystemConfig` + `MonitorConfig`, `AudioConfig`,
+    `BrightnessConfig` + `BrightnessMonitorOverride`, `BatteryConfig` +
+    `BatteryDeviceWarningThreshold`, `NightLightConfig`, `LocationConfig`,
+    `StorageConfig`. Done: deserialize `[system.monitor]`, `[audio]`,
+    `[brightness]`, `[nightlight]`, `[location]`.
+  - [ ] 2.1.8 Weather, calendar, hooks, control center — `WeatherConfig`,
+    `CalendarConfig` + `Account`, `HooksConfig`, `ControlCenterConfig` +
+    `CalendarTabConfig`, `hookKindFromKey`/`hookKindKey`. Done: deserialize
+    `[weather]`, `[calendar]`, `[control_center.calendar]`, `[hooks]`.
+  - [ ] 2.1.9 Theme, plugins, root `Config` — `ThemeConfig` + nested
+    `TemplateColorConfig`/`TemplateInputPathModesConfig`/
+    `TemplateCompareColorConfig`/`UserTemplateConfig`/`TemplatesConfig`,
+    `PluginSourceConfig`/`PluginsConfig`/`defaultPluginSources`/
+    `isDefaultPluginSourceName`/`isValidPluginSourceName`, the top-level
+    `Config` struct and `ConfigChangeSet` (`any()` + the field list —
+    `computeConfigChangeSet` itself is `config_overrides.cpp`, task 2.5,
+    not here). Done: deserialize `[theme]`/`[theme.templates]`, then the
+    **whole** `example.toml` losslessly through the assembled `Config`
+    struct — this is where task 2.1's original done-bar actually lands.
 - [ ] 2.2 Widget config — src: `src/config/widget_config.{cpp,h}`,
   `widget_setting_value.h` → `config::widget`. Done: port `tests/config_widget_test.cpp`.
 - [ ] 2.3 Schema — src: `src/config/schema/*` → `config::schema`. Done: port

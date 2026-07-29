@@ -1005,3 +1005,57 @@ Next step: task 2.1 — Phase 2 (Config, crates/noctalia-config) begins.
   meaty test file" suggests checking for a similarly-scoped split before
   diving in if config_types.{cpp,h} turns out to be another
   process.cpp-sized file.
+
+## 2026-07-29 (session 18)
+Attempted: task 2.1 — config data model. Found it was indeed another
+  process.cpp-sized file (flagged as a real risk in session 17's own "next
+  step" note); split it before writing any code, same protocol as task 1.6.
+Done: plan-only edit. `src/config/config_types.h` is 1631 lines + 579 in
+  the `.cpp`, ~50 nested struct types spanning ~30 independent top-level
+  `example.toml` sections (bar, shell, wallpaper, backdrop, lockscreen,
+  dock, desktop widgets, OSD, notifications, idle, keybinds, hotcorners,
+  accessibility, system, audio, brightness, battery, nightlight, location,
+  storage, weather, calendar, hooks, theme, plugins, control center) plus
+  the root `Config`/`ConfigChangeSet` aggregate — comparable in scope to
+  1.6's `process.cpp` (968 lines, 6-way split). Replaced the single 2.1
+  checkbox in MIGRATION_PLAN.md with 2.1.1-2.1.9, grouped by domain and
+  ordered so no subtask's structs forward-reference a later subtask's
+  types; only the last (2.1.9, the root `Config` struct) exercises the
+  full `example.toml` round-trip, since only then does every field exist.
+  One real cross-cutting dependency found and resolved while reading, not
+  papered over: `color_spec.h` declares `colorSpecFromConfigString`/
+  `colorSpecToConfigString` (implemented in `config_types.cpp`, not a
+  `color_spec.cpp` — there isn't one) over `ColorSpec`/`ColorRole`, which
+  live in `ui/palette.h` — a UI/theme header, not `config/*`. Read
+  `ui/palette.h` directly to confirm `ColorSpec` is a small POD (`role:
+  Option<ColorRole>, fixed: Color, alpha: f32`), not the heavy
+  parse/blend/contrast machinery task 3.1 owns (`Palette`/scheme
+  generation stays there, untouched). Since both Phase 2 (`WidgetConfig`'s
+  settings map alone uses `ColorSpec` in ~8 places) and Phase 3 need this
+  same tiny type, and neither `noctalia-config` nor `noctalia-theme`
+  should depend on the other, split it out as new task 2.1.1 living in
+  `noctalia-core` (`core::color`) — the one crate both already depend on.
+  Recorded as a deliberate placement decision in the task text itself, not
+  just here, so it survives independent of session memory.
+  Second cross-task dependency found and recorded rather than hidden:
+  `WidgetConfig` (config_types.h, this task) is keyed by
+  `WidgetSettingValue`, which lives in `widget_setting_value.h` — already
+  assigned to task 2.2 (`widget_config.{cpp,h}`, `widget_setting_value.h`
+  → `config::widget`), a distinct, smaller file from `config_types.h`'s own
+  `WidgetConfig` struct despite the near-identical name (confirmed by
+  reading both — `widget_config.cpp` is the *default widget list* seeding
+  file, e.g. the `"{:%a %d %b}"` clock default from task 1.9's own
+  research; `WidgetConfig` the struct + its settings-accessor methods are
+  defined across `config_types.{h,cpp}`). Noted the ordering dependency
+  directly on 2.1.2 (bar & widget settings, the subtask needing
+  `WidgetConfig`): do 2.2 first, or pull `WidgetSettingValue` forward into
+  2.1.2 if 2.2 hasn't landed by then.
+Half-finished: nothing (plan-split only, no code touched, tree stays at
+  the same green `just check` state task 1.9 left it in).
+Next step: task 2.1.1 (color primitives — new `noctalia-core::color`:
+  `Color` from `render/core/color.h`, `ColorRole`/`ColorRoleToken`/
+  `ColorSpec` from `ui/palette.h`, `colorSpecFromConfigString`/
+  `colorSpecToConfigString` from `config_types.cpp`, `config_limits.h`'s 4
+  constants). Read `render/core/color.h` first (not yet read this
+  session) to confirm `Color`'s representation before picking a Rust type
+  for it.
