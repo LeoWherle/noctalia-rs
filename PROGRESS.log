@@ -1059,3 +1059,64 @@ Next step: task 2.1.1 (color primitives — new `noctalia-core::color`:
   constants). Read `render/core/color.h` first (not yet read this
   session) to confirm `Color`'s representation before picking a Rust type
   for it.
+
+## 2026-07-29 (session 19)
+Attempted: an independent whole-of-Phase-1 review (tasks 1.1-1.9 incl. the
+  1.6.1-1.6.6 split), fanning out six parallel subagents over
+  `crates/noctalia-core/src/` vs. C++ `src/`/`tests/`, each re-deriving C++
+  behavior from primary sources rather than trusting prior doc comments.
+Done: Verdict PASS — no blocking findings anywhere in Phase 1; every
+  task's own done-bar is genuinely met. Five nitpicks surfaced, all now
+  fixed (tree was left dirty with the review's own write-up under
+  `later/PHASE1_REVIEW.md` when this session picked back up; extracted
+  and actioned rather than committing the scratch doc itself, since
+  CLAUDE.md's "no docs unless asked" applies here and the actionable
+  content belongs in the code, not a standalone file):
+  - `log.rs`'s `MIN_LEVEL` read/written outside `FILE_STATE`'s lock
+    (C++ serializes both under one `scoped_lock`) — documented as a
+    deliberate, benign divergence via a doc comment on the `static`.
+  - `directory_scanner.rs::scan`'s error handling absorbs *all*
+    `read_dir` iteration errors via `continue`, where the C++ only
+    absorbs permission-denied and `break`s on any other error
+    (directory_scanner.cpp:44-45) — documented inline as deliberate
+    (same shape as `process::matching`'s existing break-vs-skip
+    divergence), not fixed, since a `break` would need error-kind
+    detail `std::fs::ReadDir` doesn't expose as cleanly as
+    `std::error_code`.
+  - `event_loop.rs`'s `tokio_handle()` returns a `Handle` not
+    lifetime-tied to `&self`; retaining it past `EventLoop`'s drop
+    leaves `.spawn()` calls hanging forever (sidecar thread already
+    joined) — added a doc comment warning and pointing at
+    `spawn_on_tokio` as the scoped alternative, verified against tokio
+    1.53.1 source in the review.
+  - `core_exec.rs`'s `RunResult`'s derived `Default` gave `exit_code: 0`
+    ("succeeded") where the C++'s in-class default is `-1`
+    ("failed/not-run", process.h:18) — replaced the derive with a
+    manual `impl Default` matching the C++ sentinel; simplified
+    `RunResult::failed()` and `async_exec.rs::run_sync_shell`'s
+    empty-command path to both just use `RunResult::default()` now that
+    it carries the right sentinel.
+  - `detached.rs`'s module doc comment claimed the fork-to-exec window
+    does "only async-signal-safe work" matching the C++, but the
+    grandchild actually allocates fresh `CString`s for `working_dir`/
+    `activation_token`/every argv element where the C++ reuses
+    already-allocated buffers via `.c_str()` (process.cpp:591-604) — a
+    real (if inert today) widening of the malloc surface in the
+    async-signal-unsafe window. Reworded to state this accurately
+    rather than overclaim parity; left unfixed (hand-rolling
+    pre-allocated NUL-terminated buffers ahead of `fork()` is a bigger
+    change than this nitpick justifies without profiling data).
+  - `fds.rs`'s doc comment understated `bucket_target`'s worst-case
+    UTF-8-boundary truncation gap as "at most 2 bytes shorter" than the
+    C++'s raw byte-117 cut; the actual worst case (a 4-byte UTF-8
+    character starting at byte 114) is 3 bytes — fixed the number and
+    added the worked example.
+  Re-ran `nix develop .#rust -c just check` after all six fixes: clean
+  (fmt --check, clippy -D warnings, full workspace test suite, exit 0).
+  No test changes were needed — all six fixes are doc-comment corrections
+  or `Default`-impl equivalence, none change observable behavior of any
+  passing test.
+Half-finished: nothing.
+Next step: unchanged from session 18 — task 2.1.1 (color primitives, see
+  above). Phase 1 is now fully closed out including its own follow-up
+  nitpicks; Phase 2 proper starts clean.

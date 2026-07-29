@@ -16,7 +16,7 @@ const CANCEL_POLL_CAP_MS: i32 = 250;
 /// A streaming output callback, receiving each raw chunk as it's read.
 type OutputCb<'a> = Option<&'a mut dyn FnMut(&[u8])>;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct RunResult {
     pub exit_code: i32,
     pub out: Vec<u8>,
@@ -26,12 +26,26 @@ pub struct RunResult {
     pub err_truncated: bool,
 }
 
-impl RunResult {
-    fn failed() -> Self {
+impl Default for RunResult {
+    /// `exit_code` defaults to `-1` ("failed/not-run"), matching the C++
+    /// in-class default (`process.h:18`) rather than a derived `0`
+    /// ("succeeded") — `RunResult` is public API and a caller building one
+    /// with `..Default::default()` should get the same sentinel C++ would.
+    fn default() -> Self {
         Self {
             exit_code: -1,
-            ..Default::default()
+            out: Vec::new(),
+            err: Vec::new(),
+            timed_out: false,
+            out_truncated: false,
+            err_truncated: false,
         }
+    }
+}
+
+impl RunResult {
+    fn failed() -> Self {
+        Self::default()
     }
 
     /// Matches the C++ `RunResult::operator bool()`.

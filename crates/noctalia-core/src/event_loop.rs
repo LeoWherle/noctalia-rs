@@ -118,6 +118,12 @@ impl<Data: 'static> EventLoop<Data> {
         self.calloop.handle()
     }
 
+    /// The returned handle is not lifetime-tied to `&self`: if a caller retains
+    /// it past this `EventLoop`'s drop, `TokioSidecar::drop` has already sent
+    /// the shutdown signal and joined the sidecar thread, so `.spawn()` on the
+    /// stale handle still succeeds syntactically but no thread is left to poll
+    /// the injected task — the returned `JoinHandle` hangs forever. Prefer
+    /// `spawn_on_tokio` below, which is scoped to the sidecar's lifetime.
     pub fn tokio_handle(&self) -> TokioHandle {
         self.tokio.handle().clone()
     }

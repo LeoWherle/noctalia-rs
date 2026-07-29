@@ -112,10 +112,7 @@ pub fn run_async_shell_with_options(
 /// Port of `runSync(const std::string&)`.
 pub fn run_sync_shell(command: &str) -> RunResult {
     if command.is_empty() {
-        return RunResult {
-            exit_code: -1,
-            ..RunResult::default()
-        };
+        return RunResult::default();
     }
     run_sync(&shell_command(command))
 }

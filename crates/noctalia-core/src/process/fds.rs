@@ -28,8 +28,10 @@
 //!   valid UTF-8. `/proc/self/fd/*` targets are real filesystem paths or
 //!   kernel-synthesized pseudo-paths (`socket:[...]`, `pipe:[...]`, etc.),
 //!   overwhelmingly ASCII in practice, so this is not reachable in practice —
-//!   and even when it is, the result is at most 2 bytes shorter than the
-//!   C++'s, not a different bucket or a corrupted count.
+//!   and even when it is, the result is at most 3 bytes shorter than the
+//!   C++'s (worst case: a 4-byte UTF-8 character starting at byte 114 forces
+//!   `truncate_to_char_boundary` back to 114, vs. the C++'s raw byte-117
+//!   cut), not a different bucket or a corrupted count.
 //! - `read_fd_target` lossily converts the raw `readlink` bytes to UTF-8
 //!   (`String::from_utf8_lossy`) instead of storing them as opaque bytes like
 //!   the C++'s `std::string`. Unlike `process::matching`'s `/proc/<pid>/cmdline`

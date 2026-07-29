@@ -57,8 +57,15 @@ pub fn scan(
 
     let mut entries: Vec<FileEntry> = Vec::new();
     for item in read_dir {
-        // Mirrors `directory_options::skip_permission_denied`: skip entries the
-        // iterator can't stat/read rather than aborting the whole scan.
+        // Mirrors `directory_options::skip_permission_denied` for permission
+        // errors, but diverges for any other iteration error: the C++ sets
+        // `ec` and `break`s the whole scan (directory_scanner.cpp:44-45),
+        // where this `continue`s past the bad entry and keeps scanning.
+        // Deliberate, not "fixed": low practical impact (Rust ends up
+        // scanning more on the hypothetical error path, not less — same
+        // shape as `process::matching`'s break-vs-skip divergence) and a
+        // `break` here would require distinguishing error kinds that
+        // `std::fs::ReadDir` doesn't expose as cleanly as `std::error_code`.
         let Ok(item) = item else { continue };
 
         let name = item.file_name().to_string_lossy().into_owned();

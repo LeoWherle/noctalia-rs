@@ -71,6 +71,12 @@ pub fn parse_log_level(value: &str) -> Option<LogLevel> {
     }
 }
 
+// Divergence from C++: the C++ serializes level changes against log calls under
+// the same `scoped_lock` that guards the log file/state. Here `MIN_LEVEL` is a
+// bare atomic outside that lock, so a `set_log_level` racing a log call can
+// observe the pre- or post-change threshold inconsistently. Benign in practice
+// (worst case: one log line right at the boundary uses the "wrong" threshold)
+// and not worth a lock for a value only ever read/written atomically.
 static MIN_LEVEL: AtomicU8 = AtomicU8::new(LogLevel::Info as u8);
 
 pub fn current_log_level() -> LogLevel {

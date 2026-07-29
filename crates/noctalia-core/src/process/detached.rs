@@ -20,9 +20,19 @@
 //!   can deadlock the moment it tries to acquire it — before it gets to
 //!   `execvp`. The C++ has exactly the same exposure (it forks from the same
 //!   process, which is not guaranteed single-threaded either); this isn't a
-//!   Rust-specific hazard, and there's no fix here beyond what the C++
-//!   already does (keep the fork-to-exec window doing only async-signal-safe
-//!   work).
+//!   Rust-specific hazard. That said, the two implementations don't do
+//!   *identical* work in the fork-to-exec window: the C++ reuses
+//!   already-allocated `std::string` buffers via `.c_str()` and only
+//!   allocates one pointer vector (process.cpp:591-604), where the
+//!   grandchild here (`exec_or_exit` and its `working_dir`/
+//!   `activation_token` callers, above) allocates fresh `CString`s for every
+//!   argv element plus those two fields — a real widening of the malloc
+//!   surface in the async-signal-unsafe window, not just a difference in
+//!   deadlock *probability* (both are already exposed to that in a binary
+//!   sense). Not fixed here: doing so would mean hand-rolling NUL-terminated
+//!   buffers ahead of `fork()` instead of using `CString`, which is a bigger
+//!   change than this task's scope justifies without profiling data showing
+//!   it matters.
 //! - Neither implementation takes any lock before calling `fork()`. On this
 //!   crate's own test binary specifically, that matters for one concrete
 //!   pairing: Rust's `std::env::set_var`/`remove_var` (used by this module's
