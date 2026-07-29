@@ -1591,6 +1591,24 @@ Next step: task 2.1.9 (theme, plugins, root `Config` — `ThemeConfig` + nested 
   `PluginsConfig`/`defaultPluginSources`/`isDefaultPluginSourceName`/`isValidPluginSourceName`, top-level `Config` struct,
   and `ConfigChangeSet`). Deserializes the whole `example.toml` losslessly through the assembled `Config` struct!
 
+## 2026-07-29 (session 27)
+Attempted: task 2.1.9 — theme, plugins, root `Config` data models & whole `example.toml` deserialization.
+Done: 2.1.9, flipped in MIGRATION_PLAN.md. Three new submodules in `noctalia-config::types`:
+  - `theme` (`crates/noctalia-config/src/types/theme.rs`): `TemplateColorConfig`, `TemplateInputPathModesConfig`,
+    `TemplateCompareColorConfig`, `UserTemplateConfig`, `TemplatesConfig`, and `ThemeConfig`.
+  - `plugins` (`crates/noctalia-config/src/types/plugins.rs`): `PluginSourceKind` enum, `PluginSourceConfig`, `PluginsConfig`,
+    `default_plugin_sources`, `is_default_plugin_source_name`, `is_valid_plugin_source_name`.
+  - `config` (`crates/noctalia-config/src/types/config.rs`): Root `Config` struct assembling all 28 config sections,
+    and `ConfigChangeSet` with 28 boolean flags and `any(&self) -> bool` method.
+  Tests: 132 tests passing in `noctalia-config` (up from 125). Lossless deserialization test for the entire `example.toml`
+  file through the root `Config` struct; `ConfigChangeSet` defaults and `any()` tests; in-class defaults verification tests.
+  Pre-done review (rule 3, fresh subagent): independently verified all 28 section fields against C++ `Config` and `ConfigChangeSet`
+  definitions in `config_types.h:1533-1625`; confirmed `example.toml` deserializes losslessly through the assembled `Config` struct;
+  ran `just check` independently (clean). Verdict PASS. Task 2.1 complete!
+Half-finished: nothing.
+Next step: task 2.3 Whole-config TOML parser — `src/config/config_file.{cpp,h}` → `config::file` (`parseConfigFile` / `writeConfigFile`).
+
+
 
 
 

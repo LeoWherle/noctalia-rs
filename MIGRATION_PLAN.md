@@ -305,7 +305,7 @@ by design).
     `CalendarConfig` + `Account`, `HooksConfig`, `ControlCenterConfig` +
     `CalendarTabConfig`, `hookKindFromKey`/`hookKindKey`. Done: deserialize
     `[weather]`, `[calendar]`, `[control_center.calendar]`, `[hooks]`.
-  - [ ] 2.1.9 Theme, plugins, root `Config` — `ThemeConfig` + nested
+  - [x] 2.1.9 Theme, plugins, root `Config` — `ThemeConfig` + nested
     `TemplateColorConfig`/`TemplateInputPathModesConfig`/
     `TemplateCompareColorConfig`/`UserTemplateConfig`/`TemplatesConfig`,
     `PluginSourceConfig`/`PluginsConfig`/`defaultPluginSources`/
