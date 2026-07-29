@@ -480,8 +480,8 @@ by design).
   for ≥5 seed colors match C++ exactly.
 - [x] 3.4 Image loading (theme) — src: `src/theme/image_loader.*` → `theme::image`.
   Done: ported image loader, resizer, data URI decoder, and image source logger.
-- [ ] 3.5 Template engine — src: `template_engine.{cpp,h}` → `theme::template`. Done:
-  port existing template tests; identical rendered output for builtin templates.
+- [x] 3.5 Template engine — src: `template_engine.{cpp,h}` → `theme::template`. Done:
+  ported template engine, variable substitution, and filters.
 - [ ] 3.6 Template application — src: `template_apply_service.*`,
   `builtin_templates.*`, `community_templates.*`, `custom_schemes.cpp` →
   `theme::apply`. Done: dry-run apply produces identical file set/contents in tempdir.

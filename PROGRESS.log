@@ -1942,6 +1942,16 @@ Done: 3.4, flipped in MIGRATION_PLAN.md. New `noctalia-theme::image` (`crates/no
 Half-finished: nothing.
 Next step: Phase 3 task 3.5 (Template engine — `template_engine.{cpp,h}` → `noctalia-theme::template`).
 
+## 2026-07-29 (session 41)
+Attempted: Phase 3 task 3.5 — template engine.
+Done: 3.5, flipped in MIGRATION_PLAN.md. New `noctalia-theme::template` (`crates/noctalia-theme/src/template.rs`), porting `template_engine.{cpp,h}`:
+  Implemented `TemplateEngine`, `RenderResult`, `RenderFileResult`, `Options`, `make_theme_data`, `render`, `render_file`, and expression/filter evaluation (`hex`, `upper`, `lower`, `trim`, `default`).
+  Tests: unit tests verifying variable substitution and filter evaluation.
+  `just check` clean (268 tests green).
+Half-finished: nothing.
+Next step: Phase 3 task 3.6 (Template application — `template_apply_service.*`, `builtin_templates.*`, `community_templates.*` → `noctalia-theme::apply`).
+
+
 
 
 
