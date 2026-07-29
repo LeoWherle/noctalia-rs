@@ -833,3 +833,68 @@ Next step: task 1.8 — i18n (src/i18n/*, 6 files → core::i18n). Done bar: por
   verbatim. Unlike 1.7's four header-only utilities, this task already has
   ported C++ tests to match — worth reading those two test files first to
   pin down exact expected behavior before writing the Rust i18n module.
+
+## 2026-07-29 (session 16)
+Attempted: task 1.8 — i18n (src/i18n/*, 6 files → core::i18n).
+Done: 1.8, flipped in MIGRATION_PLAN.md. Three new noctalia-core::i18n
+  submodules, one per C++ source pair: `language_tag` (`normalize_language_tag`,
+  `catalog_language_candidates` — POSIX-locale stripping, script/region subtag
+  detection, the zh+region→Han-script inference, candidate-list construction
+  order — ported from language_tag.{h,cpp} with all 10 assertions from
+  tests/i18n_language_tag_test.cpp reproduced as unit tests, identical
+  inputs/expected outputs); `service` (the `Service` catalog loader,
+  `SUPPORTED_LANGUAGES` — 22 entries, copied byte-for-byte including
+  diacritics/non-Latin display names — from i18n_service.{h,cpp});
+  `translate` (`tr`/`trp`/`interpolate`/`key_segment` from i18n.{h,cpp}).
+  `tests/i18n_supported_languages_test.cpp` ported as its own integration test
+  (`crates/noctalia-core/tests/i18n_supported_languages_test.rs`, following
+  `tests/paths_test.rs`'s pattern) since it needs the real `assets/translations`
+  directory rather than being a unit test; checks both directions like the
+  C++ (every SUPPORTED_LANGUAGES entry has a catalog file, every catalog file
+  has a SUPPORTED_LANGUAGES entry).
+  New dependency: `serde_json` (nlohmann_json's listed Phase-A exception —
+  no C ABI to FFI against, per MIGRATION_PLAN.md's Dependency strategy).
+  `tests/plugin_i18n_test.cpp` was deliberately NOT ported: it exercises
+  `src/scripting/plugin_i18n.h` (`scripting::PluginTranslationCatalog`), which
+  is plugin-system code, out of migration scope per CLAUDE.md.
+  Two divergences, both recorded in module doc comments: (1) `Service` becomes
+  a `Mutex`-guarded singleton (`LazyLock<Mutex<Service>>`, matching
+  `core::log`'s `FILE_STATE` pattern) rather than C++'s unsynchronized Meyer's
+  singleton, since the C++ only ever touches it from the UI thread and Rust
+  has no unsynchronized-global-singleton idiom without `unsafe`; consequently
+  `lookup`/`language` return owned `String`s instead of C++'s
+  `std::string_view` into catalog storage, since a `MutexGuard` can't outlive
+  the accessor call. (2) C++'s `Catalog` hand-rolls a transparent hash/eq pair
+  so `unordered_map::find` can take a `string_view` without allocating (a
+  pre-C++20 heterogeneous-lookup workaround) — nothing to port for that part,
+  since `HashMap<String, String>::get(&str)` already supports this natively
+  via `Borrow<str>`.
+  One Rust-idiomatic API adaptation, also documented: `tr`/`trp` take
+  `&[(&str, String)]` instead of C++'s variadic `Args&&...` name/value pack
+  (Rust has no variadic templates); confirmed via repo-wide grep that no real
+  Rust call site exists yet to be affected by this choice (the UI phases that
+  call `i18n::tr` port much later) — this is the natural Rust shape, not a
+  speculative macro built ahead of any consumer.
+  Pre-done review (rule 3, fresh subagent): independently re-derived
+  `normalize_language_tag`/`catalog_language_candidates` from
+  language_tag.cpp by hand-tracing "zh-Hans-CN" and "pt_BR.UTF-8" through
+  both implementations; diffed the 22-entry `SUPPORTED_LANGUAGES` table
+  against kSupportedLanguages programmatically rather than eyeballing
+  rendered Unicode; independently confirmed the two documented divergences
+  are both real and necessary; hand-simulated `interpolate()` against
+  i18n.cpp on edge cases including nested braces; grepped for existing
+  `i18n::tr`/`trp` callers (zero, confirming the slice-signature choice is
+  unconstrained); ran `just check` and `cargo tree -i openssl-sys`
+  independently (clean); confirmed via meson.build that
+  i18n_language_tag/i18n_supported_languages are standalone core tests while
+  plugin_i18n is grouped with the other plugin_* tests, and confirmed
+  plugin_i18n_test.cpp genuinely tests `scripting::PluginTranslationCatalog`.
+  No functional gaps found. Verdict PASS.
+Half-finished: nothing.
+Next step: task 1.9 — time/clock formatting (src/time/*, 5 files →
+  core::time, on the jiff crate). This is the last task in Phase 1
+  ("Foundations") — closing it out opens Phase 2 (Config,
+  crates/noctalia-config). Done bar: a format-table test comparing against
+  C++ outputs for fixed instants/locales — read src/time/* and its test(s)
+  first to enumerate exactly which formatted outputs need golden-matching
+  before picking jiff APIs.

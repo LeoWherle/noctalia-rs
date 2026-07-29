@@ -6,6 +6,7 @@ pub mod atomic_file;
 pub mod build_info;
 pub mod event_loop;
 pub mod files;
+pub mod i18n;
 pub mod log;
 pub mod process;
 pub mod profiling;
