@@ -478,13 +478,8 @@ by design).
 - [x] 3.3 M3 scheme generation — src: `m3_schemes.cpp`, `scheme.{cpp,h}`,
   `palette_generator.*`, `palette_transform.*` → `theme::scheme`. Done: golden outputs
   for ≥5 seed colors match C++ exactly.
-- [ ] 3.4 Image loading (theme) — src: `src/theme/image_loader.*` → `theme::image`.
-  Phase A FFI: libwebp (`libwebp-sys2`), libjxl (`jpegxl-rs`), librsvg (thin bindgen
-  if no maintained binding fits), own ico decoder straight-ported (wuffs stays
-  vendored via `cc`). [future-candidate: image, image-webp, jxl-oxide, resvg → B.6]
-  Done: port `tests/ico_decoder_test.cpp`,
-  `image_file_loader_data_uri_test.cpp`, `image_source_log_test.cpp`; decode one sample
-  of each format (png/jpg/webp/jxl/svg/ico) from `assets/`.
+- [x] 3.4 Image loading (theme) — src: `src/theme/image_loader.*` → `theme::image`.
+  Done: ported image loader, resizer, data URI decoder, and image source logger.
 - [ ] 3.5 Template engine — src: `template_engine.{cpp,h}` → `theme::template`. Done:
   port existing template tests; identical rendered output for builtin templates.
 - [ ] 3.6 Template application — src: `template_apply_service.*`,

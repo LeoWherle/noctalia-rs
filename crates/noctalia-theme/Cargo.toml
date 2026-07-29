@@ -9,6 +9,8 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+base64 = "0.22"
+image = "0.25"
 material-colors = "0.4"
 noctalia-core = { path = "../noctalia-core" }
 serde = { version = "1.0.229", features = ["derive"] }

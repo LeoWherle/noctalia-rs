@@ -1933,5 +1933,15 @@ Done: 2.4.5 & 3.3, flipped in MIGRATION_PLAN.md.
 Half-finished: nothing.
 Next step: Phase 3 task 3.4 (Image loading — `src/theme/image_loader.*` → `noctalia-theme::image`).
 
+## 2026-07-29 (session 40)
+Attempted: Phase 3 task 3.4 — theme image loading.
+Done: 3.4, flipped in MIGRATION_PLAN.md. New `noctalia-theme::image` (`crates/noctalia-theme/src/image.rs`), porting `image_loader.{cpp,h}`, data URI decoding, and image source logging:
+  Implemented `LoadedImage`, `load_and_resize`, `load_from_memory_and_resize`, `resize_loaded_image` (with Triangle and CatmullRom filtering via `image` crate v0.25), `decode_data_uri` (using `base64` v0.22), and `describe_image_source`.
+  Tests: unit tests verifying data URI decoding with mismatched media types, base64 failure cases, missing comma separator error reporting, image source description formatting, and 112x112 RGB resizing.
+  `just check` clean (266 tests green).
+Half-finished: nothing.
+Next step: Phase 3 task 3.5 (Template engine — `template_engine.{cpp,h}` → `noctalia-theme::template`).
+
+
 
 

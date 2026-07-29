@@ -2,5 +2,6 @@
 
 pub mod color;
 pub mod contrast;
+pub mod image;
 pub mod palette;
 pub mod scheme;
