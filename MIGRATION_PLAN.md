@@ -277,7 +277,7 @@ by design).
     `WallpaperTransition`/`WallpaperFavorite`, `BackdropConfig`,
     `LockscreenConfig`, `DockConfig`. Done: deserialize `[wallpaper]`,
     `[backdrop]`, `[lockscreen]`, `[dock]`.
-  - [ ] 2.1.5 Desktop widgets, OSD, notifications — `DesktopWidgetsGridState`/
+  - [x] 2.1.5 Desktop widgets, OSD, notifications — `DesktopWidgetsGridState`/
     `DesktopWidgetState`/`DesktopWidgetsConfig`, `LockscreenWidgetsConfig`,
     `OsdKindsConfig`/`OsdConfig`, `NotificationConfig`/
     `NotificationFilterConfig`, `ShadowDirectionOffset`. Done: deserialize

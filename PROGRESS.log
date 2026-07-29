@@ -1503,3 +1503,29 @@ Next step: task 2.1.5 (desktop widgets, OSD, notifications — `DesktopWidgetsGr
   `OsdConfig`, `NotificationConfig`/`NotificationFilterConfig`, `ShadowDirectionOffset`).
   Continues the 2.1.x split. Read `config_types.h` and `config_schema.cpp` for these sections first.
 
+## 2026-07-29 (session 23)
+Attempted: task 2.1.5 — desktop widgets, OSD, notifications configuration data models.
+Done: 2.1.5, flipped in MIGRATION_PLAN.md. Four new submodules in `noctalia-config::types`:
+  - `desktop_widgets` (`crates/noctalia-config/src/types/desktop_widgets.rs`): `DesktopWidgetsGridState`,
+    `DesktopWidgetState` (`type` -> `type_`, `output` -> `output_name`, `rotation` -> `rotation_rad`),
+    `DesktopWidgetsConfig`, `LockscreenWidgetsConfig`. TOML keys cross-checked against `config_schema.cpp:369-395`.
+  - `osd` (`crates/noctalia-config/src/types/osd.rs`): `OsdKindsConfig` (all 15 toggle fields default `true`),
+    `OsdConfig`. TOML keys cross-checked against `config_schema.cpp:42-78`.
+  - `notification` (`crates/noctalia-config/src/types/notification.rs`): `NotificationFilterConfig`
+    (`match` -> `match_`), `NotificationConfig`. TOML keys cross-checked against `config_schema.cpp:197-235, 241-366`.
+  - `shadow` (`crates/noctalia-config/src/types/shadow.rs`): `ShadowDirection` enum (`Center`, `Down`, `Up`,
+    `Left`, `Right`, `DownLeft`, `DownRight`, `UpLeft`, `UpRight`), `ShadowDirectionOffset`, and
+    `shadow_direction_offset` mapping function (config_types.h:745-796).
+  Tests: 89 tests passing in `noctalia-config` (up from 81). Lossless deserialization tests for
+  `[desktop_widgets]`, `[osd]`, `[osd.kinds]`, `[notification]` directly from `example.toml`; in-class
+  defaults verification tests; `shadow_direction_offset` mapping correctness; serde round-trip test for `ShadowDirection`.
+  Pre-done review (rule 3, fresh subagent): independently verified all sections against C++ struct definitions and
+  `config_schema.cpp` field registrations; confirmed `match` and `type` rename attributes; verified `shadow_direction_offset`
+  offset values; ran `just check` independently (clean). Verdict PASS.
+Half-finished: nothing.
+Next step: task 2.1.6 (idle, keybinds, hotcorners, accessibility — `IdleBehaviorConfig`/
+  `IdleConfig`/`IdleActionRequest`/`ResolvedIdleBehavior`/`defaultIdleBehaviors`/`commandIdleAction`/
+  `idleAction`, `KeybindsConfig`/`defaultKeybindSet`, `HotCornersConfig` + `Corner`, `AccessibilityConfig`).
+  Continues the 2.1.x split. Note: `KeyChord` POD already exists in `noctalia_core::input::KeyChord`.
+
+
