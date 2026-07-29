@@ -413,6 +413,53 @@ by design).
     final done-bar for this subtask, not for 2.4 as a whole.
 - [ ] 2.5 Merge & overrides — src: `config_merge.{cpp,h}`, `config_overrides.cpp` →
   `config::merge`. Done: ported merge tests; deep-merge semantics identical.
+  **Split (session 31, `config_overrides.cpp` is 2467 lines, almost all of it
+  `ConfigService::*` methods needing a live service — task 2.9, not ported —
+  plus a genuinely-portable-now pure comparison-logic slice; `deepMerge` itself
+  turns out to live in `config_service.cpp`, not `config_merge.cpp`)**:
+  - [x] 2.5.1 Deep merge — `ConfigService::deepMerge` (`config_service.cpp:1353`,
+    despite the name living in `config_merge.{cpp,h}`'s task grouping): recursive
+    TOML table merge, table-into-table recurses, everything else (including
+    arrays) replaces wholesale. Pure, no deps beyond `toml`. Done: unit tests
+    (no C++ test exists — grep confirms zero references to `deepMerge` under
+    `tests/`) covering nested-table recursion, array wholesale-replace,
+    table-over-non-table and non-table-over-table replacement.
+  - [ ] 2.5.2 Config change-set computation — `computeConfigChangeSet`
+    (`config_overrides.cpp:712`) + its equality helpers (`vectorEqual`,
+    `widgetSettingEqual`/`widgetSettingsEqual` with int/double coercion,
+    `pluginsConfigEqual`, `desktopWidgetEqual`/`desktopWidgetsConfigEqual`/
+    `lockscreenWidgetsConfigEqual`, `barBaseConfigEqual`/
+    `applyMonitorOverrideForComparison`/`barMonitorOverrideEqual`/
+    `barConfigEqual`, `widgetConfigEqual`/`widgetMapEqual`, `configEqual`).
+    Pure, operates only on already-ported `Config`/`BarConfig`/
+    `BarMonitorOverride`/`WidgetConfig`/`DesktopWidgetsConfig`/
+    `LockscreenWidgetsConfig`/`PluginsConfig` — portable now. `configEqual`
+    (override-effectiveness equality, distinct from `computeConfigChangeSet`'s
+    per-section dirty-flags) is in scope too, same file/helpers. Done: no C++
+    test exists (grep confirms) — unit tests proving int/double widget-setting
+    coercion, the bar monitor-override resolution + comparison (every override
+    field, matching `applyMonitorOverrideForComparison` exactly), and
+    `ConfigChangeSet`/`configEqual` round-trips against representative diffs.
+  - [ ] 2.5.3 Include-aware directory merge — `mergeConfigWithIncludes`
+    (`config_merge.cpp`): scans a config dir for sorted `*.toml`, expands each
+    file's `[include]` table (files + directories, cycle detection, `autoload`
+    opt-out), overlaying via 2.5.1's `deep_merge`. Needs `FileUtils::
+    expandEnvVars`/`resolvePath` (`util/file_utils.h`) — pull forward only
+    those two functions (same "minimal piece" pattern as 2.1.3's `KeyChord`),
+    not the whole header (also has XDG-base-dir expansion, private-permission
+    helpers, etc. unrelated to this task — a future task owns porting the rest
+    as its callers need it). Done: unit tests against real temp directories (no
+    C++ test exists) covering multi-file sorted merge, `[include].files`
+    (file + directory forms), cycle detection, `autoload = false` opt-out, and
+    an env-var-expanded include path.
+  - [ ] 2.5.4 Live override CRUD — the remaining ~1900 lines of
+    `config_overrides.cpp`: every `ConfigService::*` method (bar/monitor
+    override create/move/rename/delete, `setOverride`/`clearOverride`(s),
+    plugin source/enable management, theme mode/scheme setters, dock/
+    setup-wizard/desktop-widgets-state setters, override-path effectiveness
+    queries). All genuinely need a live `ConfigService` (task 2.9) to exist —
+    fold this into task 2.9's own scope rather than porting it standalone
+    against nothing to call it on.
 - [ ] 2.6 Migrations — src: `config_migrations.{cpp,h}` → `config::migrations` using
   `toml_edit` (must preserve user comments/format exactly as C++ does — verify against
   C++ behavior first; if C++ rewrites the file, plain `toml` is fine). Done: port

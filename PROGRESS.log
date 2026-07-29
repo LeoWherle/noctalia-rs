@@ -1750,3 +1750,49 @@ Next step: task 2.4.2 (bar/desktop/lockscreen widget-type validation —
   dependency order instead, or re-read MIGRATION_PLAN.md's phase ordering to
   decide.
 
+## 2026-07-29 (session 31)
+Attempted: task 2.5 Merge & overrides. Split before starting (CLAUDE.md/plan
+  protocol): `config_overrides.cpp` is 2467 lines, almost all `ConfigService::*`
+  methods needing a live service (task 2.9, not ported) — bar/monitor override
+  CRUD, plugin/theme mutation setters, override-path effectiveness queries —
+  plus a genuinely portable-now pure comparison-logic slice
+  (`computeConfigChangeSet` + its equality helpers). Also discovered
+  `ConfigService::deepMerge` (which `config_merge.cpp`'s `mergeConfigWithIncludes`
+  and `config_validate.cpp` both call) actually lives in `config_service.cpp`,
+  not `config_merge.{cpp,h}` despite the task grouping's name. Split 2.5 into
+  2.5.1 (deep merge, this session) / 2.5.2 (change-set computation) / 2.5.3
+  (`mergeConfigWithIncludes`, needs `FileUtils::expandEnvVars`/`resolvePath`
+  pulled forward) / 2.5.4 (the rest — folded into task 2.9's scope, since it
+  needs a live `ConfigService` to exist at all).
+Done: 2.5.1, flipped in MIGRATION_PLAN.md. New `noctalia-config::merge`
+  (`crates/noctalia-config/src/merge.rs`): `deep_merge`, a straight port of
+  `ConfigService::deepMerge` — recurse only when both `base` and `overlay`
+  have the same key as a table; everything else (arrays included — never
+  element-wise merged) replaces wholesale. No C++ test exists (grep confirms
+  zero references to `deepMerge` under `tests/`). Tests: 8 unit tests (nested-
+  table recursion incl. an untouched sibling table surviving, array wholesale-
+  replace, table-over-non-table and non-table-over-table replacement, new
+  top-level scalar key, new nested-table key, empty overlay is a no-op).
+  Pre-done review (rule 3, fresh subagent): independently re-derived the C++
+  semantics from `config_service.cpp:1353-1366`, confirmed the Rust `let`-chain
+  recursion guard requires both sides to be tables (not just overlay), confirmed
+  no iteration-order dependency, ran `just check` independently (clean, 182
+  tests in `noctalia-config`). One coverage nitpick, fixed before committing:
+  added `new_nested_table_key_is_added_wholesale` (previously only a new
+  top-level *scalar* key was tested, not a new nested-table path). Verdict PASS.
+Half-finished: nothing.
+Next step: task 2.5.2 (config change-set computation —
+  `computeConfigChangeSet` + `vectorEqual`/`widgetSettingEqual`/
+  `widgetSettingsEqual`/`pluginsConfigEqual`/`desktopWidgetEqual`/
+  `desktopWidgetsConfigEqual`/`lockscreenWidgetsConfigEqual`/
+  `barBaseConfigEqual`/`applyMonitorOverrideForComparison`/
+  `barMonitorOverrideEqual`/`barConfigEqual`/`widgetConfigEqual`/
+  `widgetMapEqual`/`configEqual`, all from `config_overrides.cpp:29-413,712-743`).
+  Pure, portable now — no external blockers, but fiddly:
+  `applyMonitorOverrideForComparison` alone resolves ~40 `BarMonitorOverride`
+  fields onto a `BarConfig` clone one at a time; cross-check every field name
+  and any type-narrowing cast (e.g. `widgetCapsulePadding`/`widgetCapsuleRadius`/
+  `widgetCapsuleOpacity`'s f64-in-Option-to-f32-with-clamp casts) against
+  `crates/noctalia-config/src/types/bar.rs`'s actual field types line-by-line,
+  not from memory.
+
