@@ -282,7 +282,7 @@ by design).
     `OsdKindsConfig`/`OsdConfig`, `NotificationConfig`/
     `NotificationFilterConfig`, `ShadowDirectionOffset`. Done: deserialize
     `[desktop_widgets]`, `[osd]`/`[osd.kinds]`, `[notification]`.
-  - [ ] 2.1.6 Idle, keybinds, hotcorners, accessibility — `IdleBehaviorConfig`/
+  - [x] 2.1.6 Idle, keybinds, hotcorners, accessibility — `IdleBehaviorConfig`/
     `IdleConfig`/`IdleActionRequest`/`ResolvedIdleBehavior`/
     `defaultIdleBehaviors`/`commandIdleAction`/`idleAction`,
     `KeybindsConfig`/`defaultKeybindSet`, `HotCornersConfig` + `Corner`,

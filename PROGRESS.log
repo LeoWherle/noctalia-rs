@@ -1528,4 +1528,27 @@ Next step: task 2.1.6 (idle, keybinds, hotcorners, accessibility — `IdleBehavi
   `idleAction`, `KeybindsConfig`/`defaultKeybindSet`, `HotCornersConfig` + `Corner`, `AccessibilityConfig`).
   Continues the 2.1.x split. Note: `KeyChord` POD already exists in `noctalia_core::input::KeyChord`.
 
+## 2026-07-29 (session 24)
+Attempted: task 2.1.6 — idle, keybinds, hotcorners, accessibility configuration data models.
+Done: 2.1.6, flipped in MIGRATION_PLAN.md. Four new submodules in `noctalia-config::types`:
+  - `idle` (`crates/noctalia-config/src/types/idle.rs`): `IdleBehaviorConfig`, `IdleConfig`,
+    `IdleActionKind`, `IdleActionRequest`, `ResolvedIdleBehavior`, `idle_action`, `command_idle_action`,
+    `normalize_idle_behavior_action`, `resolve_idle_behavior_actions`, `default_idle_behaviors`.
+    Cross-checked against `config_types.cpp:119-146, 199-242`.
+  - `keybinds` (`crates/noctalia-config/src/types/keybinds.rs`): `KeybindAction` enum, `default_keybind_set`
+    function returning `Vec<KeyChord>` (XKB keysyms), `KeybindsConfig`.
+  - `hotcorners` (`crates/noctalia-config/src/types/hotcorners.rs`): `HotCornerConfig` and `HotCornersConfig`.
+  - `accessibility` (`crates/noctalia-config/src/types/accessibility.rs`): `AccessibilityConfig`.
+  Tests: 102 tests passing in `noctalia-config` (up from 89). Lossless deserialization tests for
+  `[idle]`, `[keybinds]`, `[accessibility]` directly from `example.toml`; TOML string deserialization for `[hot_corners]`;
+  `resolve_idle_behavior_actions` logic tests; `default_keybind_set` value verification.
+  Pre-done review (rule 3, fresh subagent): independently verified all 4 sections against C++ struct definitions and
+  `config_schema.cpp` field registrations; verified `default_keybind_set` keysym values against XKB header values;
+  ran `just check` independently (clean). Verdict PASS.
+Half-finished: nothing.
+Next step: task 2.1.7 (system, audio, brightness, battery, nightlight, location, storage — `SystemConfig` + `MonitorConfig`,
+  `AudioConfig`, `BrightnessConfig` + `BrightnessMonitorOverride`, `BatteryConfig` + `BatteryDeviceWarningThreshold`,
+  `NightLightConfig`, `LocationConfig`, `StorageConfig`).
+
+
 
