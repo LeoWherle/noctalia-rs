@@ -475,6 +475,26 @@ by design).
 - [x] 3.2 Palettes — src: `builtin_palettes.*`, `fixed_palette.*`, `custom_palettes.*`,
   `community_palettes.*`, `palette.h` → `theme::palette`. Done: builtin table equality
   against C++ dump.
+  **Follow-up needed (discovered session 46, while building task 4.2.6 on top of this
+  module — checkbox not reopened, this is new information the original done-bar didn't
+  catch, same pattern as session 30's task 2.3 note): `expand_fixed_palette_mode`
+  (`palette.rs`) is a stub — it copies the 16 base `Palette` fields 1:1 and ignores
+  `is_dark` entirely. The real `expandFixedPaletteMode` (`fixed_palette.cpp:204-‑320`+,
+  ~150 lines) derives ~30 more tokens via HSL math that the stub never produces:
+  `*_container`/`on_*_container` (via `makeContainerDark`/`makeContainerLight` +
+  `ensureContrast`), `*_fixed`/`*_fixed_dim`/`on_*_fixed`/`on_*_fixed_variant` (via
+  `makeFixedDark`/`makeFixedLight`), the surface-container ramp
+  (`surface_container_lowest/low/high/highest`, `surface_dim`, `surface_bright`),
+  `outline`/`outline_variant` (contrast-adjusted from the raw input), `scrim`,
+  `inverse_surface`/`inverse_on_surface`/`inverse_primary`. This silently affects
+  already-shipped, checked-off functionality: `expand_builtin_palette` (used for every
+  builtin catalog entry — Ayu, Catppuccin, Dracula, ...) calls this via
+  `expand_fixed_palettes`, so builtin-palette output has been missing these tokens since
+  task 3.2 landed. Needs a dedicated task: port `expandFixedPaletteMode` in full
+  (`ensureContrast`/`interpolateColor` from `theme::contrast`/`theme::color` are
+  prerequisites — check they're already ported before starting; `contrast.rs` exists
+  from task 3.1, verify coverage). Not attempted here — scoping alone made clear it's
+  its own multi-hour task, not a fix-while-passing-through.
 - [x] 3.3 M3 scheme generation — src: `m3_schemes.cpp`, `scheme.{cpp,h}`,
   `palette_generator.*`, `palette_transform.*` → `theme::scheme`. Done: golden outputs
   for ≥5 seed colors match C++ exactly.
@@ -565,6 +585,36 @@ by design).
     JSON output (stdout or `-o`), `--scheme`/`--dark`/`--light`/`--both`/
     `--pure-black`, template rendering via `-r`/`-c`/`--builtin-config`. Builds
     entirely on already-ported `noctalia-theme` (image/scheme/outputs/template).
+    **Split (session 46, discovered the `-r`/`-c`/`--builtin-config` template-render
+    path needs `TemplateEngine::applyCustomColors`/`processConfigTemplates`
+    (`template_engine.cpp:1341-1607`) — dynamic input/output path resolution via
+    subprocess (`process::runSync`), pre/post hooks, `post_action`
+    (`kde-color-scheme`/`firefox-theme`, both already ported in `outputs.rs`),
+    color harmonization via material-color-utilities HCT
+    (`makeCustomColorScheme`/`harmonizeHex`), closest-color comparison
+    (`findClosestColor`), and multi-client output gating
+    (`inferClientConfigRoot`/`markMultiClientGatedEntries`/`shouldSkipTemplateOutput`)
+    — none of which exist in Rust yet; `apply.rs`'s `apply_templates_dry_run` is a
+    simplified stand-in for task 3.6's own done-bar, not this. Genuinely not "builds
+    entirely on already-ported noctalia-theme" as originally scoped — that assumption
+    was wrong.**:
+    - [x] 4.2.6a Core JSON generate — image path or `--theme-json` → JSON output
+      (stdout or `-o`), `--scheme`/`--dark`/`--light`/`--both`/`--pure-black`.
+      Fully covered by already-ported `noctalia-theme` (`image`/`scheme`/`outputs`).
+      Done: `noctalia theme <image>` and `--theme-json` both produce JSON matching
+      `toJson`'s shape; `-o` writes to file; `--pure-black` re-anchors dark surface
+      tones.
+    - [ ] 4.2.6b Template rendering (`-r`/`-c`/`--builtin-config`) — port
+      `TemplateEngine::applyCustomColors`/`processConfigTemplates` and their ~9
+      helper functions (listed above) from `template_engine.cpp` into
+      `noctalia-theme::template`, then wire `-r <in:out>` (direct `render_file`,
+      already available) and `-c <file>`/`--builtin-config` (the full
+      `processConfigTemplates` pipeline) into the CLI. Done: port template-engine
+      tests covering hooks/post-actions/harmonize/compare/gating if any exist under
+      `tests/`; CLI-level render of a real template config matches the C++ output
+      byte-for-byte for a fixture with no dynamic paths/hooks/post-actions (those
+      need live subprocess execution — manual check, same pattern as other
+      live-service-dependent tasks in this plan).
   - [ ] 4.2.7 theme CLI: `--list-templates` — needs a real builtin-template-catalog
     reader (port of `builtin_templates.cpp`'s `loadBuiltinTemplateInfo`, reading
     `assets/templates/builtin.toml`) and community-template listing (port of the

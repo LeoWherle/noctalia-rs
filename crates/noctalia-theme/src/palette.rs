@@ -187,92 +187,62 @@ pub fn apply_terminal_palette(tokens: &mut HashMap<String, u32>, terminal: &Term
     );
 }
 
+/// Port of `synthesizeTerminalPaletteTokens(TokenMap&)` (`fixed_palette.cpp:155-193`).
+///
+/// Fixed prior to task 4.2.6: this previously used a different (undocumented, incorrect)
+/// fallback chain — e.g. `terminal_normal_green` fell back to `tertiary` instead of the C++'s
+/// `primary`, and the top-level fallbacks didn't chain through `background`/`surface` the way
+/// `tokenOr(tokens, "background", tokenOr(tokens, "surface", kOpaqueBlack))` does. Found while
+/// building on this function for the `--theme-json` CLI path; no golden test pinned the old
+/// (wrong) values, so this is a correctness fix, not a recorded deliberate divergence.
 pub fn synthesize_terminal_palette_tokens(tokens: &mut HashMap<String, u32>) {
-    let get_or_default = |key: &str, fallback_key: &str| -> u32 {
-        tokens
-            .get(key)
-            .copied()
-            .unwrap_or_else(|| tokens.get(fallback_key).copied().unwrap_or(0xff000000))
+    const OPAQUE_BLACK: u32 = 0xff000000;
+    const OPAQUE_WHITE: u32 = 0xffffffff;
+
+    let get = |t: &HashMap<String, u32>, key: &str, fallback: u32| -> u32 {
+        t.get(key).copied().unwrap_or(fallback)
     };
 
-    let on_surface = get_or_default("on_surface", "on_surface");
-    let surface = get_or_default("surface", "surface");
-    let primary = get_or_default("primary", "primary");
-    let on_primary = get_or_default("on_primary", "on_primary");
-    let surface_variant = get_or_default("surface_variant", "surface_variant");
-    let error = get_or_default("error", "error");
-    let tertiary = get_or_default("tertiary", "tertiary");
-    let secondary = get_or_default("secondary", "secondary");
-    let outline = get_or_default("outline", "outline");
+    let background = get(tokens, "background", get(tokens, "surface", OPAQUE_BLACK));
+    let foreground = get(tokens, "on_surface", OPAQUE_WHITE);
+    let surface = get(tokens, "surface", background);
+    let surface_variant = get(tokens, "surface_variant", surface);
+    let on_surface_variant = get(tokens, "on_surface_variant", foreground);
+    let outline = get(tokens, "outline", on_surface_variant);
+    let error = get(tokens, "error", foreground);
+    let primary = get(tokens, "primary", foreground);
+    let secondary = get(tokens, "secondary", primary);
+    let tertiary = get(tokens, "tertiary", secondary);
+    let primary_fixed_dim = get(tokens, "primary_fixed_dim", primary);
+    let secondary_fixed_dim = get(tokens, "secondary_fixed_dim", secondary);
 
-    tokens
-        .entry("terminal_foreground".to_string())
-        .or_insert(on_surface);
-    tokens
-        .entry("terminal_background".to_string())
-        .or_insert(surface);
-    tokens
-        .entry("terminal_cursor".to_string())
-        .or_insert(primary);
-    tokens
-        .entry("terminal_cursor_text".to_string())
-        .or_insert(on_primary);
-    tokens
-        .entry("terminal_selection_fg".to_string())
-        .or_insert(on_surface);
-    tokens
-        .entry("terminal_selection_bg".to_string())
-        .or_insert(surface_variant);
-
-    tokens
-        .entry("terminal_normal_black".to_string())
-        .or_insert(surface_variant);
-    tokens
-        .entry("terminal_normal_red".to_string())
-        .or_insert(error);
-    tokens
-        .entry("terminal_normal_green".to_string())
-        .or_insert(tertiary);
-    tokens
-        .entry("terminal_normal_yellow".to_string())
-        .or_insert(secondary);
-    tokens
-        .entry("terminal_normal_blue".to_string())
-        .or_insert(primary);
-    tokens
-        .entry("terminal_normal_magenta".to_string())
-        .or_insert(primary);
-    tokens
-        .entry("terminal_normal_cyan".to_string())
-        .or_insert(tertiary);
-    tokens
-        .entry("terminal_normal_white".to_string())
-        .or_insert(on_surface);
-
-    tokens
-        .entry("terminal_bright_black".to_string())
-        .or_insert(outline);
-    tokens
-        .entry("terminal_bright_red".to_string())
-        .or_insert(error);
-    tokens
-        .entry("terminal_bright_green".to_string())
-        .or_insert(tertiary);
-    tokens
-        .entry("terminal_bright_yellow".to_string())
-        .or_insert(secondary);
-    tokens
-        .entry("terminal_bright_blue".to_string())
-        .or_insert(primary);
-    tokens
-        .entry("terminal_bright_magenta".to_string())
-        .or_insert(primary);
-    tokens
-        .entry("terminal_bright_cyan".to_string())
-        .or_insert(tertiary);
-    tokens
-        .entry("terminal_bright_white".to_string())
-        .or_insert(on_surface);
+    let entries: [(&str, u32); 22] = [
+        ("terminal_foreground", foreground),
+        ("terminal_background", background),
+        ("terminal_cursor", foreground),
+        ("terminal_cursor_text", background),
+        ("terminal_selection_fg", on_surface_variant),
+        ("terminal_selection_bg", surface_variant),
+        ("terminal_normal_black", surface_variant),
+        ("terminal_normal_red", error),
+        ("terminal_normal_green", primary),
+        ("terminal_normal_yellow", secondary),
+        ("terminal_normal_blue", tertiary),
+        ("terminal_normal_magenta", primary_fixed_dim),
+        ("terminal_normal_cyan", secondary_fixed_dim),
+        ("terminal_normal_white", foreground),
+        ("terminal_bright_black", outline),
+        ("terminal_bright_red", error),
+        ("terminal_bright_green", primary),
+        ("terminal_bright_yellow", secondary),
+        ("terminal_bright_blue", tertiary),
+        ("terminal_bright_magenta", primary_fixed_dim),
+        ("terminal_bright_cyan", secondary_fixed_dim),
+        ("terminal_bright_white", foreground),
+    ];
+    for (key, value) in entries {
+        tokens.entry(key.to_string()).or_insert(value);
+    }
 }
 
 pub fn expand_fixed_palettes(dark: &Palette, light: &Palette) -> GeneratedPalette {
@@ -636,5 +606,34 @@ mod tests {
         assert!(generated.dark.contains_key("terminal_foreground"));
         assert!(generated.light.contains_key("primary"));
         assert!(generated.light.contains_key("terminal_foreground"));
+    }
+
+    #[test]
+    fn synthesize_terminal_palette_tokens_follows_cpp_fallback_chain() {
+        // Matches `fixed_palette.cpp:155-193`'s exact fallback chain, not the token's own name.
+        let mut tokens = HashMap::new();
+        tokens.insert("surface".to_string(), 0x11);
+        tokens.insert("on_surface".to_string(), 0x22);
+        tokens.insert("primary".to_string(), 0x33);
+        // secondary/tertiary/outline/error/*_fixed_dim/background left absent to exercise the
+        // chained fallbacks.
+        synthesize_terminal_palette_tokens(&mut tokens);
+
+        assert_eq!(tokens["terminal_background"], 0x11); // background -> surface
+        assert_eq!(tokens["terminal_foreground"], 0x22); // foreground -> on_surface
+        assert_eq!(tokens["terminal_cursor"], 0x22); // foreground
+        assert_eq!(tokens["terminal_cursor_text"], 0x11); // background
+        assert_eq!(tokens["terminal_normal_green"], 0x33); // primary, NOT tertiary
+        assert_eq!(tokens["terminal_normal_blue"], 0x33); // tertiary -> secondary -> primary
+        assert_eq!(tokens["terminal_normal_magenta"], 0x33); // primary_fixed_dim -> primary
+        assert_eq!(tokens["terminal_bright_black"], 0x22); // outline -> on_surface_variant -> foreground
+    }
+
+    #[test]
+    fn synthesize_terminal_palette_tokens_never_overwrites_present_tokens() {
+        let mut tokens = HashMap::new();
+        tokens.insert("terminal_normal_green".to_string(), 0xdeadbeef);
+        synthesize_terminal_palette_tokens(&mut tokens);
+        assert_eq!(tokens["terminal_normal_green"], 0xdeadbeef);
     }
 }

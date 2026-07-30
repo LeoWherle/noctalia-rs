@@ -881,6 +881,7 @@ dependencies = [
  "clap",
  "noctalia-config",
  "noctalia-ipc",
+ "noctalia-theme",
 ]
 
 [[package]]

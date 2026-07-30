@@ -46,14 +46,7 @@ fn main() {
     let exit_code = match cli.command {
         Some(Command::Msg { args }) => noctalia_ipc::cli::run_cli(&args),
         Some(Command::Config { args }) => noctalia_config::cli::run_cli(&args),
-        Some(Command::Theme { args: _ }) => {
-            // args intentionally discarded: no theme argument parsing exists yet (that's
-            // 4.2.6/4.2.7's job), this is a stub, not a bug.
-            eprintln!(
-                "error: `noctalia theme` is not implemented yet (see MIGRATION_PLAN.md tasks 4.2.6/4.2.7)"
-            );
-            1
-        }
+        Some(Command::Theme { args }) => noctalia_theme::cli::run_cli(&args),
         None => {
             eprintln!(
                 "noctalia-rs: migration skeleton -- shell startup arrives in task 16.5 (see MIGRATION_PLAN.md)"
