@@ -650,11 +650,15 @@ by design).
         set (`replace`/`lower_case`/`camel_case`/`pascal_case`/`snake_case`/
         `kebab_case`/`to_color`, the 14 HSL color filters, `blend`/`harmonize` via
         plain HSL hue rotation — not HCT, that's only `applyCustomColors`'s
-        `harmonizeHex`), `findClosestColor`/Lab distance. Done: unit tests covering
-        block/for/if parsing, dotted color resolution across modes, every filter,
-        `palettes.*` tone iteration, `findClosestColor`; a real fixture from
-        `assets/templates/` (e.g. `gtk/gtk3.css`) renders with zero template errors
-        against a real `GeneratedPalette`.
+        `harmonizeHex`). Done: unit tests covering block/for/if parsing, dotted
+        color resolution across modes, every filter, `palettes.*` tone iteration;
+        a real fixture from `assets/templates/` (e.g. `gtk/gtk3.css`) renders with
+        zero template errors against a real `GeneratedPalette`.
+        Note (session 47): `findClosestColor`/Lab distance turned out to have no
+        call site anywhere in this task's own scope — it's only used by
+        `processConfigTemplates`'s `compare_to`/`colors_to_compare` handling
+        (4.2.6b.2 below), so it moved there instead of shipping unreachable code
+        here.
       - [ ] 4.2.6b.2 `applyCustomColors`/`processConfigTemplates` orchestration —
         needs 4.2.6b.1. `ParsedTemplateEntry` + `parseTemplateEntry`/
         `parseInputPathModes`/`parseOutputPaths`/`parseColorsToCompare`,
@@ -668,11 +672,25 @@ by design).
         (`outputs::apply_kde_color_scheme`); `firefox-theme` is NOT — `outputs.rs`
         only has `generate_firefox_theme_css` (CSS string generation), not
         `applyFirefoxTheme` (`firefox_theme.{h,cpp}`'s profile-discovery + install
-        logic the C++ post-action actually calls) — port that as part of this task
-        or split it out first if it turns out to be its own multi-hour piece (check
-        `firefox_theme.cpp`'s size before starting). Then wire `-r <in:out>` and
-        `-c <file>`/`--builtin-config` into the CLI. Done: same as 4.2.6b's original
-        done-bar above.
+        logic the C++ post-action actually calls) — checked (session 47):
+        `src/theme/firefox_theme/` is 1419 lines across 4 files
+        (`firefox_theme.cpp` alone is 869), squarely its own multi-hour piece per
+        the same "check before starting" instruction this note already gave. Split
+        it out as **4.2.6b.3 `applyFirefoxTheme`** (profile discovery across
+        Firefox/LibreWolf/Zen-style installs, `userChrome.css`/`userContent.css`
+        install, native-messaging + settings pieces per `native_messaging.{h,cpp}`/
+        `settings.{h,cpp}` if the post-action path actually needs them — check
+        before porting) rather than folding it into 4.2.6b.2; 4.2.6b.2 ships with
+        `post_action = "firefox-theme"` reporting "not implemented yet" (same
+        precedent as 4.2.6b's own `-r`/`-c` stubs before this split) until 4.2.6b.3
+        lands. Then wire `-r <in:out>` and `-c <file>`/`--builtin-config` into the
+        CLI. Done: same as 4.2.6b's original done-bar above, with the
+        `firefox-theme` post-action case covered by 4.2.6b.3 instead.
+      - [ ] 4.2.6b.3 `applyFirefoxTheme` — see 4.2.6b.2's note above. Done: port
+        whatever manual/`tests/` coverage exists for Firefox theme application
+        (check `tests/` for a reference first); manual check against a real
+        Firefox profile logged in PROGRESS.log if no automatable test covers the
+        actual install step.
   - [x] 4.2.7 theme CLI: `--list-templates` — needs a real builtin-template-catalog
     reader (port of `builtin_templates.cpp`'s `loadBuiltinTemplateInfo`, reading
     `assets/templates/builtin.toml`) and community-template listing (port of the
