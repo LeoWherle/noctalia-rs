@@ -3067,4 +3067,89 @@ Next step: task 5.5.2 (desktop entry registry — `desktop_entry.cpp`'s INI pars
   open, either order. 5.4.2 stays blocked (Phase 6.2 + `NotificationManager` scheduling). 5.6's
   backlog remains open and unblocking.
 
+## 2026-07-30 (session 53)
+Attempted: task 5.5.2 — desktop entry registry.
+Done: 5.5.2. Extended `crates/noctalia-system/src/desktop_entry.rs` (5.5.1 landed only the
+  `DesktopEntry`/`DesktopAction` struct shapes) with the full registry side of
+  `src/system/desktop_entry.cpp`: INI parsing (`parseDesktopFile`, incl. section/action-group
+  state machine, `flushCurrentAction`, localized `Name`/`GenericName`/`Comment` extraction with
+  country-before-lang priority, `OnlyShowIn`/`NotShowIn` gating, and the final
+  `Type != Application || noDisplay || hidden || name.empty() || !shouldShowOnCurrentDesktop`
+  filter), `xdgDataDirs` (XDG_DATA_HOME/HOME fallback, XDG_DATA_DIRS colon-split, two
+  unconditionally-appended system dirs, ordered dedup), `scanDesktopEntries` (recursive `.desktop`
+  walk, seen-id dedup where Hidden/NoDisplay entries still claim their id, sort by `name_lower`),
+  and the inotify-watched `DesktopEntryCache` (`refreshIfNeeded`/`checkReload`/
+  `checkSourcesChanged`/`computeSourceSignature`/`rebuildWatches`/`addWatch`/`clearWatches`).
+  `StringUtils::toLower` ported as `.to_ascii_lowercase()` (equivalence already verified against
+  `string_utils.h` in task 5.5.1, reused here for the six `*_lower` fields).
+  Structural divergence (module doc comment): the C++'s `DesktopEntryCache` is a private
+  anonymous-namespace class reached only through a hidden function-local `static` singleton
+  (`cache()`) — since no C++ test exists for this file, that singleton was never independently
+  testable either. Made `DesktopEntryCache` a public, freestanding type instead (mirroring
+  `core::files::FileWatcher`'s shape from task 1.2), with free functions
+  (`desktop_entries`/`desktop_entries_snapshot`/`desktop_entries_version`/
+  `desktop_entry_watch_fd`/`check_desktop_entry_reload`/`refresh_desktop_entries_if_sources_changed`)
+  backing onto one process-global instance. Tests construct their own `DesktopEntryCache`
+  instances directly rather than fighting the true singleton's shared inotify/env state under
+  `cargo test`'s multithreaded runner.
+  Recursive `.desktop` file collection (`collect_desktop_files`) and watch-tree building
+  (`add_watches_recursive`) hand-roll what `fs::recursive_directory_iterator` does in C++: the
+  leaf-file/watch-add test uses `fs::metadata` (follows symlinks, matching
+  `is_regular_file()`/`is_directory()`), while the recursion gate uses `DirEntry::file_type()`
+  (lstat, no follow, matching `recursive_directory_iterator`'s default no-symlink-descent) — same
+  follows-vs-doesn't-follow split `core::files::directory_scanner::scan` already documents.
+  `computeSourceSignature` uses `fs::canonicalize` (fails on a nonexistent path) rather than the
+  C++'s `fs::weakly_canonical` (best-effort on one), justified in a doc comment: a `stat` failure
+  right after already appends a `:missing` marker whenever the path doesn't exist, so the two
+  behave identically for every directory this is actually called with.
+  Tests: no C++ test exists for this file — done bar is fixture-driven parse tests + a
+  real-inotify reload test. 13 new tests: INI parsing (basic entry, non-Application rejection,
+  NoDisplay/Hidden rejection, missing-name rejection, OnlyShowIn/NotShowIn desktop gating,
+  localized Name by lang/country, action parsing incl. an incomplete action with no Exec being
+  skipped, and a file with an invalid-UTF-8 byte mid-file still parsing everything after it),
+  `xdgDataDirs` ordering/dedup, `scanDesktopEntries` id-dedup-with-hidden-priority across two
+  directories + sort-by-name_lower, a real-inotify `DesktopEntryCache` reload test (new file
+  appears, version bumps, polled the same way task 1.2's `file_watcher` tests do), and a
+  `checkSourcesChanged` test simulating a Nix-profile-style XDG_DATA_HOME swap. Every env-mutating
+  test serializes on a module-local `ENV_LOCK` (no other file in this crate touches
+  XDG_DATA_HOME/XDG_DATA_DIRS/XDG_CURRENT_DESKTOP/LANG/LC_MESSAGES, confirmed via grep, so this
+  didn't need the cross-module `noctalia_core::process::test_support` machinery).
+  Pre-done review (rule 3, fresh subagent): FAIL on first pass, two real bugs, both fixed before
+  re-review:
+  - `desktop_entries_snapshot()` blocked on an in-progress rescan because it went through the same
+    `Mutex<DesktopEntryCache>` `refresh_if_needed()` holds for the whole scan — contradicting the
+    C++'s deliberate `m_entries`/`m_entriesMutex` split, which exists so a real caller
+    (`src/scripting/luau_host.cpp`'s `luau_appIconPath`, a plugin worker thread) never blocks
+    behind a main-thread rescan. Fixed: `entries` is now `Arc<Mutex<Arc<Vec<DesktopEntry>>>>`, and
+    the free function reads from a separately-initialized static (`shared_entries_handle`/
+    `ENTRIES_HANDLE`) that never touches `cache()`'s outer `Mutex` at all. Re-review traced that
+    `cache()` and `shared_entries_handle()` are guaranteed to share the same underlying `Arc` (the
+    `OnceLock` makes first-caller-wins deterministic regardless of init order) — no
+    staleness/divergence risk.
+  - `parse_desktop_file` used `BufRead::lines()`, which yields `Err`/stops the whole parse on the
+    first invalid-UTF-8 line; C++'s `std::getline` never validates encoding and keeps going.
+    Fixed: read the whole file to raw bytes up front, split on `b'\n'`, lossily decode each line
+    independently (`String::from_utf8_lossy`) — an invalid byte inside one value no longer kills
+    parsing of the rest of the file. Added a regression test for this exact case (the first-pass
+    review flagged it as logically sound but unverified).
+  Also fixed on the same pass (flagged non-blocking but cheap to close): the id-dedup test was
+  rewritten to use two directories (Hidden entry in the higher-priority one, a genuinely visible
+  same-id entry in the lower-priority one) since the original only had one directory and would
+  have passed even with the dedup mechanism deleted; `add_watches_recursive` now separates the
+  watch-add symlink-following check from the no-follow recursion gate (previously conflated,
+  meaning a symlinked app subdirectory got neither); `parse_locale()` result is now cached via
+  `OnceLock` at its one real call site (`scan_desktop_entries`), matching the C++'s function-local
+  `static` instead of re-reading env vars on every scan.
+  Second pass (fresh subagent, independent re-verification of all 5 fixes plus a re-check for
+  newly introduced bugs): PASS, no further findings. `just check`: clean end to end (fmt, clippy
+  -D warnings, full workspace test suite, exit 0).
+Half-finished: nothing.
+Next step: task 5.5.3 (desktop entry launch + terminal launch — `desktop_entry_launch.*`,
+  `terminal_launch.*` → `system::{desktop_entry_launch,terminal_launch}`; port
+  `tests/desktop_entry_launch_test.cpp`). 5.5.4 (icon resolver — needs a new `gio-sys` FFI binding
+  for `GSettings`; check `nix/rust-devshell.nix` exposes `gio-2.0` via pkg-config first, currently
+  only `glib` is listed as a transitive dep — port `tests/icon_resolver_test.cpp`) remains open.
+  5.4.2 stays blocked (Phase 6.2 + `NotificationManager` scheduling). 5.6's backlog remains open
+  and unblocking.
+
 

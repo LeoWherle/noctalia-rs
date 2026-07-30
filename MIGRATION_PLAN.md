@@ -775,7 +775,7 @@ by design).
     `internal_app_metadata.*`, and the `DesktopEntry`/`DesktopAction` struct definitions
     (scanning/registry logic stays with 5.5.2) → `system::{app_identity,
     internal_app_metadata,desktop_entry}`. Done: port `tests/app_identity_test.cpp`.
-  - [ ] 5.5.2 Desktop entry registry — `desktop_entry.cpp`'s INI parsing, XDG directory
+  - [x] 5.5.2 Desktop entry registry — `desktop_entry.cpp`'s INI parsing, XDG directory
     scan, inotify-watched reload, version/snapshot cache → extends `system::desktop_entry`.
     No C++ test exists; done bar is fixture-driven parse tests + a real-inotify reload test
     (same precedent as task 1.2's `file_watcher` tests).
