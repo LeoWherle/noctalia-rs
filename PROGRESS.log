@@ -3152,4 +3152,67 @@ Next step: task 5.5.3 (desktop entry launch + terminal launch — `desktop_entry
   5.4.2 stays blocked (Phase 6.2 + `NotificationManager` scheduling). 5.6's backlog remains open
   and unblocking.
 
+## 2026-07-31 (session 54)
+Attempted: task 5.5.3 — desktop entry launch + terminal launch.
+Done: 5.5.3. New `crates/noctalia-system/src/{desktop_entry_launch,terminal_launch}.rs`, wired
+  into `lib.rs`.
+  `terminal_launch.rs`: port of `terminal_launch.{cpp,h}` — `Options`, `prepare_command`
+  (terminal discovery → `sh -lc <command>` argv), `launch`. `is_executable_on_path` is a private
+  near-duplicate of `noctalia_core::process::command_exists`'s PATH-search core, kept separate on
+  purpose: the C++'s own `isExecutableOnPath` checks `X_OK` only (no `is_regular_file`
+  requirement), a real behavioral difference from `commandExists`, not incidental duplication.
+  `discoverTerminal`'s priority order (explicit candidates → `$TERMINAL` env → hardcoded
+  11-candidate list → empty) and `usesCommandSeparator`'s gnome/kgx/ptyxis set ported exactly.
+  `desktop_entry_launch.rs`: port of `desktop_entry_launch.{cpp,h}` — `LaunchOptions`,
+  `PrepareOptions`, `PreparedCommand`, `prepare_command` (decode → strip field codes → tokenize or
+  delegate to `terminal_launch` → expand `~` in argv[0] if it contains `/`), `launch_entry`,
+  `launch_action`. `decodeDesktopStringValue`/`stripFieldCodes` ported over `Vec<char>` instead of
+  the C++'s byte-indexed loop — verified byte-identical output for all realistic input, since every
+  delimiter these functions test for (`%`, backslash, quote chars, `s`/`n`/`t`/`r`, the 11
+  field-code letters) is ASCII and no UTF-8 continuation/lead byte can collide with it. The
+  Flatpak `@@u ... @@` marker-stripping sub-step switches back to `str::find`/`replace_range`
+  (not char-indexed) to stay `.find`-native, matching the C++'s `erase(pos, end + 2 - pos)`
+  boundary math and resume-position logic exactly. This file's own `tokenize` is a second,
+  independent near-duplicate of `terminal_launch`'s (matching the C++, which doesn't share the two
+  either): this one additionally handles backslash-escaping inside double quotes (`\"`, `` \` ``,
+  `\$`, `\\`), which `terminal_launch::tokenize` does not. `parseCustomCommand`'s manual
+  `find`/`replace` loop (which advances past just-inserted text so a literal `$CMD` inside `exec`
+  itself isn't re-substituted) is ported as a single `str::replace` call — verified equivalent:
+  both scan only the original string for the placeholder and never rescan inserted text.
+  `effectiveRunAsSystemdService`'s function-local `std::once_flag` is ported as a function-local
+  `static std::sync::Once`, same once-per-process scope, shared across `launch_entry`/
+  `launch_action` calls (not reset per call).
+  Tests: ported all 7 `tests/desktop_entry_launch_test.cpp` assertions as separate `#[test]`s in
+  `desktop_entry_launch.rs` (field-code removal, quoted-argument tokenization, backslash-escaped
+  shell-variable preservation, terminal-candidate discovery picking the first executable
+  candidate, gnome-style `--` separator, discovery-disabled-with-no-candidates failure,
+  field-code-only command producing no argv) plus unit tests for the private helpers
+  (`decodeDesktopStringValue`, `stripFieldCodes`'s Flatpak-marker stripping, `parseCustomCommand`,
+  `launch_entry`/`launch_action` failure paths). `terminal_launch.rs` has its own tests for
+  `prepare_command`/discovery/quote-tokenizing, independent of the C++ test file (which only
+  exercises `terminal_launch` indirectly, through `desktop_entry_launch`).
+  Pre-done review (rule 3, fresh subagent): confirmed algorithmic fidelity across every ported
+  function (traced the `Vec<char>` index-arithmetic rebasing in `decodeDesktopStringValue`/
+  `stripFieldCodes` line-by-line against the C++'s implicit `for`-loop `++i`; confirmed the two
+  `tokenize` functions stayed genuinely distinct; confirmed `str::replace`/`Once`/`is_executable_on_path`
+  equivalences above independently), `just check` clean, and no scope creep (only the 2 new files
+  + a 2-line `lib.rs` mod registration touched). One real gap found: the C++ test's gnome-terminal
+  case is routed through `desktop_entry_launch::prepareCommand` (decode/strip-field-codes layer
+  included), but the initial port only re-tested that exact scenario at the `terminal_launch`
+  layer directly, skipping the integration path the C++ test actually exercises. Fixed: added
+  `gnome_style_terminals_should_use_double_dash_before_the_shell_command` to
+  `desktop_entry_launch.rs`, driving the same `PATH`-fixture setup the C++ test uses through
+  `desktop_entry_launch::prepare_command` instead. That test mutates `PATH`, so `terminal_launch`'s
+  previously module-local `ENV_LOCK` (whose doc comment claimed no other file in the crate touched
+  `PATH`) was promoted to a shared `pub(crate) test_support::ENV_LOCK`, reused by both modules'
+  test code, rather than adding a second, uncoordinated lock over the same process-global `PATH`.
+  `just check`: clean end to end (fmt, clippy -D warnings, full workspace test suite — 108 tests in
+  `desktop_entry_launch`, 87 in `terminal_launch`, exit 0).
+Half-finished: nothing.
+Next step: task 5.5.4 (icon resolver — needs a new `gio-sys` FFI binding for `GSettings`; check
+  `nix/rust-devshell.nix` exposes `gio-2.0` via pkg-config first, currently only `glib` is listed
+  as a transitive dep — port `tests/icon_resolver_test.cpp`). 5.6's backlog (remaining `src/system`
+  services not yet audited/split) remains open and unblocking. 5.4.2 stays blocked (Phase 6.2 +
+  `NotificationManager` scheduling).
+
 

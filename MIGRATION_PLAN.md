@@ -779,7 +779,7 @@ by design).
     scan, inotify-watched reload, version/snapshot cache → extends `system::desktop_entry`.
     No C++ test exists; done bar is fixture-driven parse tests + a real-inotify reload test
     (same precedent as task 1.2's `file_watcher` tests).
-  - [ ] 5.5.3 Desktop entry launch + terminal launch — `desktop_entry_launch.*`,
+  - [x] 5.5.3 Desktop entry launch + terminal launch — `desktop_entry_launch.*`,
     `terminal_launch.*` → `system::{desktop_entry_launch,terminal_launch}`. Done: port
     `tests/desktop_entry_launch_test.cpp`.
   - [ ] 5.5.4 Icon resolver — `icon_resolver.*` → `system::icon_resolver` (icon resolver may
