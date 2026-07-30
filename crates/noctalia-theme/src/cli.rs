@@ -1,11 +1,12 @@
 //! `noctalia theme` CLI entry point.
-//! Partial port of `src/theme/cli.{cpp,h}` — task 4.2.6a (core JSON generate) only.
+//! Partial port of `src/theme/cli.{cpp,h}` — tasks 4.2.6a (core JSON generate) and 4.2.7
+//! (`--list-templates`).
 //!
 //! Image-path and `--theme-json` generation (`--scheme`/`--dark`/`--light`/`--both`/
-//! `--pure-black`, `-o`) are wired. Template rendering (`-r`/`-c`/`--builtin-config`) and
-//! `--list-templates` are documented in [`HELP_TEXT`] (ported verbatim, matching the C++'s full
-//! surface) but report explicit "not implemented yet" errors — see MIGRATION_PLAN.md tasks
-//! 4.2.6b and 4.2.7. `--builtin-config`'s only other job for this task (rejecting a `--config`
+//! `--pure-black`, `-o`) and `--list-templates` are wired. Template rendering
+//! (`-r`/`-c`/`--builtin-config`) is documented in [`HELP_TEXT`] (ported verbatim, matching the
+//! C++'s full surface) but reports an explicit "not implemented yet" error — see
+//! MIGRATION_PLAN.md task 4.2.6b. `--builtin-config`'s only other job (rejecting a `--config`
 //! combination) is still fully checked, since that's a real argument-conflict rule independent
 //! of the unported rendering pipeline.
 //!
@@ -18,8 +19,9 @@
 //! has (that gap predates and is independent of this task), not a new regression introduced here.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
+use crate::apply::{community_available_templates, load_builtin_template_info};
 use crate::color::Color;
 use crate::image::load_and_resize;
 use crate::outputs::{Variant, to_json};
@@ -234,6 +236,247 @@ fn load_theme_json(path: &Path) -> Result<GeneratedPalette, String> {
     Ok(palette)
 }
 
+#[derive(Debug, Clone)]
+struct TemplateListEntry {
+    id: String,
+    category: String,
+    name: String,
+}
+
+/// Port of `templateNameOrId` (`cli.cpp:78`).
+fn template_name_or_id(id: &str, name: &str) -> String {
+    if name.is_empty() {
+        id.to_string()
+    } else {
+        name.to_string()
+    }
+}
+
+/// Port of `sortTemplateList` (`cli.cpp:80-84`).
+fn sort_template_list(entries: &mut [TemplateListEntry]) {
+    entries.sort_by(|a, b| (&a.category, &a.id, &a.name).cmp(&(&b.category, &b.id, &b.name)));
+}
+
+/// Port of `loadBuiltinTemplateList` (`cli.cpp:86-101`).
+fn load_builtin_template_list() -> Result<Vec<TemplateListEntry>, String> {
+    let builtins = load_builtin_template_info()?;
+    let mut out: Vec<TemplateListEntry> = builtins
+        .into_iter()
+        .map(|b| {
+            let name = template_name_or_id(&b.id, &b.name);
+            TemplateListEntry {
+                id: b.id,
+                category: b.category,
+                name,
+            }
+        })
+        .collect();
+    sort_template_list(&mut out);
+    Ok(out)
+}
+
+/// Port of `loadCommunityTemplateList` (`cli.cpp:103-118`).
+fn load_community_template_list() -> Vec<TemplateListEntry> {
+    let community = community_available_templates();
+    let mut out: Vec<TemplateListEntry> = community
+        .into_iter()
+        .map(|entry| {
+            let name = template_name_or_id(&entry.id, &entry.display_name);
+            TemplateListEntry {
+                id: entry.id,
+                category: entry.category,
+                name,
+            }
+        })
+        .collect();
+    sort_template_list(&mut out);
+    out
+}
+
+/// Port of `loadConfiguredUserTemplateList` (`cli.cpp:120-137`), backed by the same default
+/// config-dir/state-dir resolution `ConfigService`'s C++ default constructor uses
+/// (`config_service.cpp:548-565`).
+fn load_configured_user_template_list() -> Vec<TemplateListEntry> {
+    let config_dir = noctalia_core::files::paths::config_dir();
+    let state_dir = noctalia_core::files::paths::state_dir();
+    let (overrides_path, state_path) = if state_dir.is_empty() {
+        (PathBuf::new(), PathBuf::new())
+    } else {
+        (
+            PathBuf::from(&state_dir).join("settings.toml"),
+            PathBuf::from(&state_dir).join("state.toml"),
+        )
+    };
+    let service =
+        noctalia_config::service::ConfigService::new(&config_dir, &overrides_path, &state_path);
+
+    let mut out: Vec<TemplateListEntry> = service
+        .config()
+        .theme
+        .templates
+        .user_templates
+        .iter()
+        .map(|entry| TemplateListEntry {
+            id: entry.id.clone(),
+            category: "user".to_string(),
+            name: entry.id.clone(),
+        })
+        .collect();
+    sort_template_list(&mut out);
+    out
+}
+
+/// Port of `loadTemplateCatalog` (`cli.cpp:139-157`).
+fn load_template_catalog(root: &toml::Table) -> HashMap<String, TemplateListEntry> {
+    let mut out = HashMap::new();
+    let Some(catalog) = root.get("catalog").and_then(|v| v.as_table()) else {
+        return out;
+    };
+    for (id, node) in catalog {
+        let mut entry = TemplateListEntry {
+            id: id.clone(),
+            category: String::new(),
+            name: id.clone(),
+        };
+        if let Some(info) = node.as_table() {
+            if let Some(name) = info.get("name").and_then(|v| v.as_str()) {
+                entry.name = name.to_string();
+            }
+            if let Some(category) = info.get("category").and_then(|v| v.as_str()) {
+                entry.category = category.to_string();
+            }
+        }
+        out.insert(id.clone(), entry);
+    }
+    out
+}
+
+/// Port of `loadTemplateConfigList` (`cli.cpp:159-196`).
+fn load_template_config_list(
+    path: &Path,
+    required: bool,
+) -> Result<Vec<TemplateListEntry>, String> {
+    if !path.exists() {
+        if required {
+            return Err("file does not exist".to_string());
+        }
+        return Ok(Vec::new());
+    }
+
+    let content = std::fs::read_to_string(path).map_err(|err| err.to_string())?;
+    let root: toml::Table = content
+        .parse()
+        .map_err(|err: toml::de::Error| err.to_string())?;
+
+    let Some(templates) = root.get("templates").and_then(|v| v.as_table()) else {
+        return Ok(Vec::new());
+    };
+
+    let catalog = load_template_catalog(&root);
+    let mut out = Vec::new();
+    for (id, node) in templates {
+        if node.as_table().is_none() {
+            continue;
+        }
+        if let Some(entry) = catalog.get(id) {
+            out.push(entry.clone());
+        } else {
+            out.push(TemplateListEntry {
+                id: id.clone(),
+                category: String::new(),
+                name: id.clone(),
+            });
+        }
+    }
+    sort_template_list(&mut out);
+    Ok(out)
+}
+
+/// Port of `printTemplateListGroup` (`cli.cpp:198-221`).
+fn print_template_list_group(title: &str, entries: &[TemplateListEntry], first_group: &mut bool) {
+    if entries.is_empty() {
+        return;
+    }
+    if !*first_group {
+        println!();
+    }
+    *first_group = false;
+    println!("{title}");
+
+    let mut id_width = "ID".len();
+    let mut category_width = "Category".len();
+    for entry in entries {
+        id_width = id_width.max(entry.id.len());
+        category_width = category_width.max(if entry.category.is_empty() {
+            1
+        } else {
+            entry.category.len()
+        });
+    }
+
+    println!(
+        "  {:<id_width$}  {:<category_width$}  Name",
+        "ID", "Category"
+    );
+    for entry in entries {
+        let category = if entry.category.is_empty() {
+            "-"
+        } else {
+            &entry.category
+        };
+        println!(
+            "  {:<id_width$}  {:<category_width$}  {}",
+            entry.id, category, entry.name
+        );
+    }
+}
+
+/// Port of `listTemplates` (`cli.cpp:223-258`).
+fn list_templates(config_path: Option<&str>) -> i32 {
+    let builtins = match load_builtin_template_list() {
+        Ok(list) => list,
+        Err(err) => {
+            eprintln!("error: failed to load built-in templates: {err}");
+            return 1;
+        }
+    };
+
+    let community = load_community_template_list();
+
+    let (user_templates, group_title) = if let Some(config_path) = config_path {
+        let template_config_path = noctalia_core::files::paths::expand_user_path(config_path);
+        let list = match load_template_config_list(&template_config_path, true) {
+            Ok(list) => list,
+            Err(err) => {
+                eprintln!(
+                    "error: failed to load template config {}: {err}",
+                    template_config_path.display()
+                );
+                return 1;
+            }
+        };
+        let filename = template_config_path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        (list, format!("Template config ({filename})"))
+    } else {
+        (
+            load_configured_user_template_list(),
+            "User templates".to_string(),
+        )
+    };
+
+    let mut first_group = true;
+    print_template_list_group("Built-in templates", &builtins, &mut first_group);
+    print_template_list_group("Community templates (cached)", &community, &mut first_group);
+    print_template_list_group(&group_title, &user_templates, &mut first_group);
+    if first_group {
+        println!("No templates found.");
+    }
+    0
+}
+
 /// Entry point for `noctalia theme <image> [options]`. `args` are the tokens after the `theme`
 /// verb (matching `noctalia_config::cli::run_cli`'s convention). Returns a process exit code.
 #[must_use]
@@ -327,10 +570,7 @@ pub fn run_cli(args: &[String]) -> i32 {
     }
 
     if list_templates_requested {
-        eprintln!(
-            "error: `noctalia theme --list-templates` is not implemented yet (see MIGRATION_PLAN.md task 4.2.7)"
-        );
-        return 1;
+        return list_templates(config_path.as_deref());
     }
 
     if builtin_config && config_path.is_some() {
@@ -523,8 +763,103 @@ mod tests {
     }
 
     #[test]
-    fn list_templates_reports_not_implemented_yet() {
-        assert_eq!(run_cli(&["--list-templates".to_string()]), 1);
+    fn list_templates_with_missing_explicit_config_fails() {
+        // `-c` with a real path keeps this hermetic; a bare `--list-templates` (no `-c`) falls
+        // to `load_configured_user_template_list`'s real `ConfigService`, which touches this
+        // process's actual `$XDG_CONFIG_HOME`/`$NOCTALIA_CONFIG_HOME` — not unit-tested here for
+        // the same reason `run_export`/`run_validate`'s default-path branches aren't (see their
+        // tests' comments); covered instead by a subprocess test with isolated XDG env vars.
+        let exit = run_cli(&[
+            "--list-templates".to_string(),
+            "-c".to_string(),
+            "/does/not/exist.toml".to_string(),
+        ]);
+        assert_eq!(exit, 1);
+    }
+
+    #[test]
+    fn list_templates_with_explicit_config_succeeds() {
+        let dir = temp_dir("list-templates-config");
+        let config_path = dir.join("templates.toml");
+        std::fs::write(
+            &config_path,
+            "[catalog.mytpl]\nname = \"My Template\"\ncategory = \"editor\"\n\n[templates.mytpl]\ninput_path = \"foo\"\n",
+        )
+        .unwrap();
+
+        let exit = run_cli(&[
+            "--list-templates".to_string(),
+            "-c".to_string(),
+            config_path.to_string_lossy().to_string(),
+        ]);
+        assert_eq!(exit, 0);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn load_builtin_template_list_reads_real_catalog() {
+        let list = load_builtin_template_list().expect("should load");
+        assert!(list.iter().any(|e| e.id == "alacritty"));
+    }
+
+    #[test]
+    fn load_template_config_list_missing_required_file_fails() {
+        let result = load_template_config_list(Path::new("/does/not/exist.toml"), true);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn load_template_config_list_missing_optional_file_returns_empty() {
+        let result = load_template_config_list(Path::new("/does/not/exist.toml"), false).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn load_template_config_list_uses_catalog_metadata_and_falls_back_without_it() {
+        let dir = temp_dir("template-config-list");
+        let path = dir.join("templates.toml");
+        std::fs::write(
+            &path,
+            "[catalog.mytpl]\nname = \"My Template\"\ncategory = \"editor\"\n\n[templates.mytpl]\ninput_path = \"foo\"\n\n[templates.other]\ninput_path = \"bar\"\n",
+        )
+        .unwrap();
+
+        let list = load_template_config_list(&path, true).unwrap();
+        assert_eq!(list.len(), 2);
+        let mytpl = list.iter().find(|e| e.id == "mytpl").unwrap();
+        assert_eq!(mytpl.name, "My Template");
+        assert_eq!(mytpl.category, "editor");
+        let other = list.iter().find(|e| e.id == "other").unwrap();
+        assert_eq!(other.name, "other");
+        assert_eq!(other.category, "");
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn template_name_or_id_falls_back_to_id_when_name_empty() {
+        assert_eq!(template_name_or_id("foo", ""), "foo");
+        assert_eq!(template_name_or_id("foo", "Foo Name"), "Foo Name");
+    }
+
+    #[test]
+    fn sort_template_list_orders_by_category_then_id_then_name() {
+        let mut entries = vec![
+            TemplateListEntry {
+                id: "b".to_string(),
+                category: "z".to_string(),
+                name: "B".to_string(),
+            },
+            TemplateListEntry {
+                id: "a".to_string(),
+                category: "a".to_string(),
+                name: "A".to_string(),
+            },
+        ];
+        sort_template_list(&mut entries);
+        assert_eq!(entries[0].id, "a");
+        assert_eq!(entries[1].id, "b");
     }
 
     #[test]

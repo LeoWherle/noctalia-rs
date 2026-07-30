@@ -615,7 +615,7 @@ by design).
       byte-for-byte for a fixture with no dynamic paths/hooks/post-actions (those
       need live subprocess execution — manual check, same pattern as other
       live-service-dependent tasks in this plan).
-  - [ ] 4.2.7 theme CLI: `--list-templates` — needs a real builtin-template-catalog
+  - [x] 4.2.7 theme CLI: `--list-templates` — needs a real builtin-template-catalog
     reader (port of `builtin_templates.cpp`'s `loadBuiltinTemplateInfo`, reading
     `assets/templates/builtin.toml`) and community-template listing (port of the
     relevant slice of `community_templates.cpp`). `noctalia-theme::apply::

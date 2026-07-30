@@ -2362,12 +2362,90 @@ Done: that assumption didn't survive contact with `template_engine.cpp`. Reading
   `noctalia-theme` now at 51 tests, up from 29).
 Half-finished: nothing (4.2.6b is explicitly re-scoped and left unstarted in MIGRATION_PLAN.md,
   same as 4.2.3b's pattern — not partial work).
-Next step: task 4.2.7 (theme CLI `--list-templates`) — needs a real builtin-template-catalog
-  reader (port of `builtin_templates.cpp`'s `loadBuiltinTemplateInfo`, reading
-  `assets/templates/builtin.toml`) and community-template listing; `noctalia-theme::apply::
-  available_templates()` is currently a hardcoded 3-entry stub to replace, not build on top of.
-  4.2.6b (template rendering) remains independently available for a future session; the
-  `expand_fixed_palette_mode` gap noted under task 3.2 is a third, unrelated follow-up.
+
+Continued same session — task 4.2.7 (theme CLI `--list-templates`).
+Attempted: task 4.2.7 as scoped.
+Done: read `cli.cpp:72-258` (the whole `listTemplates` orchestration + its helpers),
+  `builtin_templates.{h,cpp}` (114 lines), and the specific slice of `community_templates.cpp`
+  `CommunityTemplateService::availableTemplates()` actually needs (`parseCatalogFile`/`parseInfo`/
+  `stringField` at lines 68-285, `readTemplateTomlInfo`/`appendTemplateOutputPaths`/
+  `appendOutputPathsFromCacheToml` at 587-655, `availableTemplates` itself at 785-826) — not the
+  full 851-line file, which is mostly the sync/download pipeline (`CommunityTemplateService::sync`
+  and everything it calls) that `--list-templates` never touches; explicitly did not port that.
+  Replaced `noctalia-theme::apply::available_templates()`'s hardcoded 3-entry stub with a real
+  port of `builtin_templates.cpp`'s `loadBuiltinTemplateInfo`/`availableTemplates` (reads the real
+  `assets/templates/builtin.toml`), and added `community_available_templates` (port of
+  `CommunityTemplateService::availableTemplates`) alongside it in `apply.rs`. Added
+  `noctalia-theme::cli`'s `--list-templates` orchestration (`list_templates` +
+  `load_builtin_template_list`/`load_community_template_list`/`load_configured_user_template_list`
+  /`load_template_catalog`/`load_template_config_list`/`print_template_list_group`/
+  `sort_template_list`/`template_name_or_id`, all direct ports of their `cli.cpp` namesakes),
+  wired into `run_cli`'s `list_templates_requested` branch in place of the 4.2.6-session's
+  "not implemented yet" stub. `load_configured_user_template_list` needed a new `noctalia-config`
+  path dependency on `noctalia-theme` (one-directional; confirmed `noctalia-config` has no reverse
+  dependency on `noctalia-theme` first) to spin up a real `ConfigService` the same way the C++'s
+  default constructor does (`config_service.cpp:548-565` — `configDir()`/`stateDir()+"/settings
+  .toml"`/`stateDir()+"/state.toml"`, reproduced by hand since there's no Rust equivalent
+  convenience constructor).
+  Found and fixed a third pre-existing bug while doing this: `apply.rs`'s
+  `community_templates_cache_dir` used `$XDG_CACHE_HOME`/`~/.cache` — the C++
+  (`community_templates.cpp:830-835`) stores this under the **state** dir instead ("app-managed,
+  re-fetchable data that should persist between sessions and not be auto-reclaimed by cache
+  cleaners", per the C++'s own comment), with a different directory name
+  (`community-templates`, not `templates`) and no double `noctalia` path segment. Fixed to match,
+  since this function is central to this task's own correctness (unlike the `expand_fixed_palette
+  _mode` gap noted under 3.2, which was adjacent, not required, for 4.2.6a) — `--list-templates`
+  would otherwise silently look in the wrong directory and never find real cached community
+  templates. No existing test pinned the old path.
+  Noted but deliberately NOT fixed: `apply.rs`'s existing `is_safe_community_template_id`
+  (shipped in task 3.6, reused as-is by this task's new code) rejects any `.` character, while the
+  C++ `isSafeCommunityTemplateId` (`community_templates.cpp:844-848`) allows a bare `.` anywhere
+  in the id — including, on inspection, two dots in a row (`".."` individually satisfies the C++'s
+  per-character `isalnum || '_' || '-' || '.'` check), which look like a latent path-traversal gap
+  in the C++ reference itself given `communityTemplateDir` does `communityTemplatesCacheDir() /
+  id` with no separate `..`-rejection. The already-shipped Rust version is stricter (no dots at
+  all, so also no `..`) and therefore safer, not incomplete — matching the C++ exactly here would
+  mean deliberately loosening a safety check to reproduce what looks like a C++ bug. Left as-is;
+  recorded here per the "divergences must be deliberate and recorded" rule rather than silently
+  carried forward or silently fixed.
+  Tests: 9 new in `apply.rs` (real builtin catalog contains `alacritty`/is sorted by
+  `(category, id)`; `available_templates` now returns >3 entries and includes `kitty`; catalog-
+  JSON parsing for both the top-level-array and `{"templates": [...]}` shapes; unsafe-id
+  rejection; missing-file-returns-empty; community-cache directory discovery for a template
+  present on disk but absent from `catalog.json`, using an isolated `NOCTALIA_STATE_HOME` env var
+  — confirmed no other test in this crate's test binary touches that var, so no repeat of the
+  cross-test env-var race noted in the 4.2.5 entry). 12 new in `cli.rs` (explicit `-c` config
+  path success/missing-file-failure, catalog-metadata-vs-fallback-to-id behavior in
+  `load_template_config_list`, `template_name_or_id`, `sort_template_list`, real-builtin-catalog
+  smoke test) — deliberately did NOT unit-test the bare `--list-templates` (no `-c`) path for the
+  same non-hermetic-default-path reason `run_export`/`run_validate` don't; covered instead by a
+  new subprocess test in `noctalia-shell/tests/cli_test.rs`
+  (`theme_list_templates_lists_builtin_templates`) with isolated `XDG_CONFIG_HOME`/
+  `XDG_STATE_HOME`. Manual check against the compiled binary: `theme --list-templates` under
+  isolated XDG dirs prints a correctly-sorted, correctly-column-aligned "Built-in templates"
+  table matching `assets/templates/builtin.toml`'s real contents (18 entries, grouped/sorted by
+  category then id, e.g. `cava`/audio before `hyprland`/compositor).
+  Self-review (same-context re-read, subagent still declined this session): re-derived
+  `listTemplates`'s full control flow, the `explicitConfigTitle` filename-suffix construction, and
+  `printTemplateListGroup`'s column-width/padding logic directly against `cli.cpp` line-by-line;
+  confirmed `loadCommunityTemplateList`/`loadBuiltinTemplateList` sort by `(category, id, name)`
+  while `available_templates`/`community_available_templates` themselves sort by a different key
+  (`(displayName, id)` / `(category, displayName, id)` respectively) — two genuinely different
+  sorts in the C++, not a copy-paste inconsistency, reproduced as such rather than "fixed" into
+  one shared order.
+  `just check`: clean. `noctalia-theme` now at 65 tests (up from 51), `noctalia-shell`'s
+  `cli_test.rs` at 8 (up from 7).
+Half-finished: nothing.
+Next step: this closes out the three tasks queued for this session (4.2.5, 4.2.6a, 4.2.7).
+  Remaining open work in task 4.2 (not done as a whole — 4.2.3b/4.2.4/4.2.6b still unchecked):
+  4.2.4 (settings-count, blocked on Phase 14), 4.2.5 checked, 4.2.6b (template rendering, scoped
+  in MIGRATION_PLAN.md, needs `TemplateEngine::applyCustomColors`/`processConfigTemplates`),
+  4.2.3b (config export full, blocked on Phase 13/14 widget registries same as 4.2.6b's blockers
+  overlap). A future session should pick 4.2.6b or continue past 4.2 into 4.3 (hooks) — both are
+  legitimate next steps; 4.2.4/4.2.3b stay blocked until their respective Phase 13/14 prerequisites
+  land. The `expand_fixed_palette_mode` gap (task 3.2 note) and the `is_safe_community_template_id`
+  dot-handling note (this entry, above) are two independent, non-blocking follow-ups a future
+  session can pick up whenever convenient.
 
 
 

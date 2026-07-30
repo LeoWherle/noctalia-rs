@@ -895,10 +895,12 @@ dependencies = [
  "base64",
  "image",
  "material-colors",
+ "noctalia-config",
  "noctalia-core",
  "serde",
  "serde_json",
  "thiserror",
+ "toml",
 ]
 
 [[package]]

@@ -142,6 +142,27 @@ fn config_export_full_reports_not_implemented_yet() {
     assert!(stderr.contains("not implemented yet"), "stderr: {stderr}");
 }
 
+/// `theme --list-templates` (with no `-c`) falls to `load_configured_user_template_list`'s real
+/// `ConfigService`, same non-hermetic-default-path reasoning as `config export`/`validate` above
+/// — isolate `XDG_CONFIG_HOME`/`XDG_STATE_HOME` rather than touching this machine's real config.
+#[test]
+fn theme_list_templates_lists_builtin_templates() {
+    let (root, config_home, state_home) = isolated_xdg_dirs("theme-list-templates");
+    let output = noctalia_shell()
+        .args(["theme", "--list-templates"])
+        .env("XDG_CONFIG_HOME", &config_home)
+        .env("XDG_STATE_HOME", &state_home)
+        .output()
+        .expect("run noctalia-shell");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Built-in templates"), "stdout: {stdout}");
+    assert!(stdout.contains("alacritty"), "stdout: {stdout}");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
 #[test]
 fn config_replay_report_reconstructs_config_and_state_home() {
     let root = std::env::temp_dir().join(format!(
