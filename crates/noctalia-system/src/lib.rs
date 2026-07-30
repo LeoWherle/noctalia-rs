@@ -2,3 +2,6 @@
 
 pub mod cpu_stat;
 pub mod cpu_temp;
+pub mod disk;
+pub mod mem;
+pub mod net;

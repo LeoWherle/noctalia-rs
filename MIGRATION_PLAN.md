@@ -707,8 +707,13 @@ by design).
   Landed as flat `noctalia-system::{cpu_stat,cpu_temp}` modules (mirrors the C++'s own
   `cpu_stat.cpp`/`cpu_temp_sensor.cpp` file split) rather than a nested `cpu::` module — same
   flat-crate-root pattern already used elsewhere (e.g. `noctalia-config`'s top-level modules).
-- [ ] 5.2 Memory/disk/net counters — src: rest of `src/system` stat readers incl. disk
+- [x] 5.2 Memory/disk/net counters — src: rest of `src/system` stat readers incl. disk
   mounts → `system::{mem,disk,net}`. Done: port `tests/disk_mounts_test.cpp` + fixtures.
+  Scoped to the pure stat-reading functions only (`readMemoryKb`/`readZfsEvictableArcKb`,
+  `readNetBytes` + the samplingLoop's per-interface throughput math, `physicalDiskMounts` +
+  `readDiskStatvfs`) — the owning `SystemMonitorService` class (polling thread, history rings,
+  retain/release ref-counting, multi-vendor GPU readers) is far larger than "stat readers"
+  (1958-line source file) and is deferred to task 5.6.
 - [ ] 5.3 Brightness — src: `brightness_service.*`, `brightness_poll_source.h` →
   `system::brightness` (sysfs + logind SetBrightness via Phase 6 when available; sysfs
   first). Done: fixture-driven tests for device enumeration and value mapping.

@@ -13,8 +13,8 @@ default:
 # The one canonical definition of "done" for Rust work.
 check:
     cargo fmt --all --check
-    cargo clippy --workspace --all-targets -- -D warnings
-    cargo test --workspace
+    cargo clippy --workspace --all-targets --quiet -- -D warnings
+    cargo test --workspace --quiet
 
 configure m=mode install_prefix=prefix:
     #!/usr/bin/env bash

@@ -2663,4 +2663,108 @@ Next step: task 5.2 (memory/disk/net counters — rest of `src/system` stat read
   remain open and unblocking, pick whenever convenient. This closes out the 3 tasks queued for
   this session (4.2.6b.1, 4.3, 5.1).
 
+## 2026-07-30 (session 48)
+Attempted: found an uncommitted, unexplained `justfile` diff at session start (`cargo clippy`/
+  `cargo test`'s `--quiet` flags added to the `check` recipe, no PROGRESS.log trace of it) —
+  verified it's harmless (just quieter build output, `just check` still green) and folded it into
+  this session's commit rather than leaving the tree dirty, per CLAUDE.md rule 1. Then task 5.2
+  (memory/disk/net counters), the next Phase 5 task in plan order.
+Done: 5.2. First had to scope it for real: MIGRATION_PLAN.md's own text ("rest of `src/system`
+  stat readers incl. disk mounts") turns out to undersell what's actually in play —
+  `readMemoryKb`/`readNetBytes`/the statvfs-based disk-usage reader all live as private methods
+  inside `SystemMonitorService` (src/system/system_monitor_service.{h,cpp}, 1958+193 lines), a
+  class whose bulk is a completely different concern: a polling thread, history ring buffers,
+  retain/release ref-counting per watched metric/disk path, and three separate GPU vendor FFI
+  readers (NVIDIA NVML, AMD RSMI, Intel). Scoped 5.2 to only the pure, stateless stat-reading
+  functions those private methods contain, and confirmed the rest has a real landing spot: task
+  5.6 ("Remaining `src/system` services (audit dir...)") already anticipates exactly this kind of
+  split-out-when-scoped work, same pattern as task 1.6's split. Recorded the scoping decision
+  under 5.2's own checkbox in MIGRATION_PLAN.md rather than letting it go undocumented.
+  New `crates/noctalia-system/src/{mem,net,disk}.rs`, wired into `lib.rs`; added `libc =
+  "0.2.189"` to `noctalia-system/Cargo.toml` (already a workspace dependency via
+  `noctalia-core`, so no new crate entered `Cargo.lock`).
+  `mem.rs`: `read_memory_kb` (port of `readMemoryKb`: MemTotal/MemAvailable/SwapTotal/SwapFree
+  extraction with the C++'s early-break-after-SwapFree, the total==0/available==0/available>total
+  "can't trust this sample" rejection, ZFS evictable-ARC folding via `min(available + zfsArcKb,
+  total)`, swap_used's saturating clamp) + private `read_zfs_evictable_arc_kb` (port of
+  `readZfsEvictableArcKb`: `/proc/spl/kstat/zfs/arcstats` size/c_min extraction requiring all 3
+  whitespace tokens per line to parse — the middle `type` token is discarded but its presence and
+  parseability still gates the line, matching the C++'s `iss >> key >> type >> value` chain
+  semantics — `(arcSize - arcMin) / 1024` only when arcSize > arcMin else 0). One divergence
+  recorded (module doc comment): this parses `/proc/meminfo` line-by-line where the C++ reads a
+  raw `key value unit` token stream spanning line boundaries; every real kernel's `/proc/meminfo`
+  content up to `SwapFree` (where the C++ stops) is well-formed 3-token-per-line, so the two
+  approaches agree on any real system — a fixture missing the unit column could theoretically
+  disagree, not reachable against real `/proc`.
+  `net.rs`: `read_net_bytes` (port of `readNetBytes`: 2-header-line skip, colon-split interface
+  name with leading-space-only trim, positional rx-then-skip-7-then-tx field parsing, both-zero
+  interfaces dropped) + a new pure `throughput_since` function extracting the per-interface
+  rate math that's inlined directly in `samplingLoop` (not a private method in the C++ — this is
+  new-shape code, same reasoning as task 1.5's `event_loop` having no direct C++ counterpart):
+  `scale = 1/intervalSeconds` using the *configured* poll interval (not measured elapsed time,
+  matching the C++ exactly), backwards counters clamp to 0 rather than underflowing, "lo" excluded
+  from the totals but still present in the per-interface map. Deliberately does not own
+  `m_prevNetBytes`'s state or its update — that mutation belongs to the deferred
+  `SystemMonitorService` port, this function only computes a rate given two already-read samples.
+  One divergence recorded (module doc comment, same class as `cpu_stat::parse_line`'s already-
+  documented one): the C++'s single `istringstream >>` chain enters a sticky fail state the moment
+  `rxBytes` fails to parse, so every later extraction on that line (the 7 skipped fields, then
+  `txBytes`) becomes a no-op leaving `txBytes` at 0; this reads the skipped fields and `txBytes`
+  independently by position, so a line with an unparseable rx field but well-formed later fields
+  would read a nonzero `txBytes` here — unreachable against real kernel-generated
+  `/proc/net/dev` rows, which are always well-formed integers.
+  `disk.rs`: `physical_disk_mounts` (full port of `disk_mounts.{h,cpp}`'s `physicalDiskMounts`:
+  `unescapeMountField`'s exact `\NNN` octal-escape decode with its `i + 3 < size()` bound check,
+  dedup-by-source keeping the strictly-shorter path so a device's root wins over its bind
+  mounts/subvolumes, the `/dev/`-required + `/dev/loop*`-excluded + `squashfs`-excluded +
+  `/boot`-and-`/boot/*`-excluded filter chain, sort by path) + `read_disk_statvfs` (port of the
+  private `readDiskStatvfs`: `libc::statvfs` FFI call, `f_blocks == 0` "unavailable" guard,
+  percent/total/free/avail byte math from `f_blocks`/`f_bfree`/`f_bavail`/`f_frsize`). Explicitly
+  does NOT port `retainDiskPath`/`releaseDiskPath`/`diskStats`/`diskUsagePercent`/`diskHistory`/
+  the `m_diskHistories` ref-counted-history-ring state around `readDiskStatvfs` — deferred to 5.6
+  with the rest of `SystemMonitorService`. Two `unsafe` blocks (`mem::zeroed()` for the plain-
+  integer-field `libc::statvfs` out-param, the `statvfs` FFI call itself), each with its own
+  SAFETY comment. `unescape_mount_field` decodes into `String` (UTF-8-required) rather than the
+  C++'s raw-byte `std::string` — divergence recorded in its doc comment, same "unreachable in
+  practice" reasoning as `noctalia-core::process::matching`'s already-documented `/proc/cmdline`
+  byte-vs-String choice (real mount sources/paths are ASCII or valid UTF-8).
+  Tests: `disk.rs` ports `tests/disk_mounts_test.cpp`'s single fixture and all its exact
+  assertions verbatim (the only C++ test covering any of this task — confirmed via grep that no
+  C++ test exists for `readMemoryKb`/`readZfsEvictableArcKb`/`readNetBytes`/`readDiskStatvfs`/the
+  throughput math, so the Rust-only tests below are this task's own bar for those, same pattern as
+  5.1's cpu_temp coverage). `mem.rs`: 5 new tests (basic total/used/swap extraction, ZFS-ARC
+  folding reduces used memory by the exact expected KB, ZFS-ARC folding clamps available at total
+  rather than overflowing used below zero, missing-file/missing-fields/available-exceeds-total all
+  rejected, arcstats parsing ignores malformed lines and returns 0 for a missing file or an
+  at-or-below-floor ARC). `net.rs`: 5 new tests (nonzero interfaces kept and all-zero interfaces
+  dropped, missing file returns `None`, loopback excluded from totals but present per-interface,
+  an unseen interface and a backwards-counter interface both report 0 rather than a bogus/
+  underflowed rate, a non-positive interval leaves the delta unscaled). `disk.rs`: the ported
+  fixture test plus an unreadable-mounts-file-returns-empty test, a live-path `statvfs` smoke test
+  against the real temp dir, and a nonexistent-path-returns-`None` test.
+  Pre-done review (rule 3, fresh subagent): independently re-verified every piece of ported logic
+  against the C++ line-by-line (mem field parsing/clamps, net's positional parsing and rate math,
+  disk's octal-unescape bound check/dedup/filter chain/statvfs field usage), independently
+  confirmed the 5.6 landing spot for the deferred `SystemMonitorService` orchestration, ran
+  `just check` independently (clean), confirmed no unsoundness in either `unsafe` block and no
+  bare `unwrap`/`expect` outside test modules. Two low-severity findings, both fixed before
+  committing: (1) `mem.rs`'s main parse loop used `line.ok()?` on a line-read error, returning
+  `None` from the whole function immediately, where its `net.rs`/`disk.rs` siblings (and the C++'s
+  `getline` failure handling) just stop the read loop and fall through to the existing-data guard
+  — inconsistent and undocumented next to the file's other, justified divergences; changed to
+  match the siblings' `let Ok(line) = line else { break }` pattern; (2) `disk.rs`'s SAFETY-
+  adjacent comment on `CString::new` rejecting an embedded-NUL path overstated it as "equivalent"
+  to the C++'s `path.c_str()` truncation behavior — the C++ would still call `statvfs` on the
+  truncated prefix and could succeed against a different path, while the Rust code returns `None`
+  without calling `statvfs` at all; reworded to describe the actual (unreachable-in-practice, but
+  not equivalent) difference. Verdict PASS.
+  `just check`: clean (`noctalia-system` now has 42 tests, up from 14).
+Half-finished: nothing.
+Next step: task 5.3 (brightness — `brightness_service.*`, `brightness_poll_source.h` →
+  `system::brightness`; sysfs first, logind SetBrightness via Phase 6 when available; fixture-
+  driven tests for device enumeration and value mapping), the next Phase 5 task in plan order.
+  5.6's growing backlog (deferred `SystemMonitorService` orchestration incl. GPU vendor readers,
+  plus its own not-yet-audited `src/system` files) stays open and unblocking — pick whenever
+  convenient.
+
 
