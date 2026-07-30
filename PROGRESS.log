@@ -2447,5 +2447,83 @@ Next step: this closes out the three tasks queued for this session (4.2.5, 4.2.6
   dot-handling note (this entry, above) are two independent, non-blocking follow-ups a future
   session can pick up whenever convenient.
 
+## 2026-07-30 (session 47)
+Attempted: task 4.2.6b (theme CLI template rendering), picked up per session 46's own "next
+  step" note.
+Done: discovered before writing any orchestration code that 4.2.6b's own prerequisite is
+  broken: `noctalia-theme::template`'s `render`/`render_file` (task 3.5, checked off in session
+  41) is not a port of `template_engine.cpp`'s actual grammar — it's a much simpler stand-in
+  (bare `{{name}}` variable substitution + 5 trivial filters), missing the real `<* for/if *>`
+  block syntax, the `colors.<name>.<mode>.<format>` dotted expression grammar, `palettes.<name>`
+  tone iteration, and the real 20-ish-filter set (case conversion, `replace`, 14 HSL color
+  filters, `blend`/`harmonize`). Confirmed this is load-bearing, not academic:
+  `grep -rl 'colors\.' assets/templates/` → 21 real template files use exactly this grammar (0
+  use `<*`/block syntax, so that part is still real but less load-bearing in practice). Split
+  4.2.6b into 4.2.6b.1 (fix the real engine — this session) and 4.2.6b.2 (`applyCustomColors`/
+  `processConfigTemplates` orchestration, needs 4.2.6b.1, not started) in MIGRATION_PLAN.md, with
+  a note under 3.5 explaining the gap (checkbox not reopened, same "discovered while building a
+  later task" pattern as session 30's task 2.3 note and the task-3.2 `expand_fixed_palette_mode`
+  note) — 3.6/4.2.6a/4.2.7 never exercised real `colors.` templates so this went unnoticed. Also
+  discovered `outputs.rs` only has `generate_firefox_theme_css` (CSS string generation), not the
+  C++'s `applyFirefoxTheme` (profile discovery + install) that the `firefox-theme` post-action
+  needs — noted under the new 4.2.6b.2 entry for whoever picks that up, not fixed here (out of
+  this session's scope, no code written for it).
+  4.2.6b.1: rewrote `crates/noctalia-theme/src/template.rs` wholesale — tokenizer (`<\*...\*>`
+  block regex + the whole-line-whitespace-only consumption rule), `TextNode`/`ForNode`/`IfNode`
+  recursive-descent parser (`for x, y in expr`, `if [not] {{expr}}` with `else`), `VariableScope`
+  (stack of maps, `loop.index`/`first`/`last`), `resolveExpressionValue`/`resolveFromScope`/
+  `processColorExpression` (`mode`/`closest_color`/`image`/`config_dir`/`config_file` base vars,
+  `colors.<name>.<mode>.<format>` with sorted-key `default` aliasing and `hover`/`on_hover`
+  aliases), `resolveIterable` (int ranges, `colors`, `palettes.<name>` via
+  `material_colors::palette::TonalPalette::from_hct` — reusing task 3.3's already-integrated
+  `material-colors` crate rather than hand-rolling HCT math), the full filter set (case
+  conversions, `replace`, all 14 HSL color filters, `blend`/`harmonize` via plain HSL hue
+  rotation — not HCT, that's only `applyCustomColors`'s `harmonizeHex`, deferred to 4.2.6b.2).
+  `makeThemeData` also fixed in the same pass: it was inventing `_hex`/`_raw`/`_rgb` suffix keys
+  the C++ never produces (a symptom of the same wrong-grammar assumption — those suffixes made
+  sense for the old bare-variable stand-in, not the real `colors.X.mode.FORMAT` filter system).
+  New dependency: `regex` (added to `noctalia-theme/Cargo.toml`) — `std::regex` has no C ABI to
+  FFI against, same "C++-only dependency, use the canonical Rust equivalent" exception as
+  toml/serde_json/zbus in the dependency strategy; checked `cargo tree -i openssl-sys` ->
+  nothing depends on it. `StringUtils::trim`/`toLower` (not ported, no owning task) reimplemented
+  minimally as `c_trim`/`.to_ascii_lowercase()`, same precedent as `noctalia-ipc::arg_parse`'s
+  `c_trim` (session 43) and `process::systemd`'s `generate_uuid_v4` (session 13).
+  Divergences recorded in the module doc comment: `findClosestColor`/Lab distance deferred to
+  4.2.6b.2 (nothing in this task's scope calls it); malformed-hex paths return "unresolved"
+  instead of the C++'s uncaught `Color::fromHex` throw (which would `std::terminate` the whole
+  process) — unreachable in practice, strictly safer than a crash; `buildColorsMap`'s
+  memoization dropped (recomputed per `for k,v in colors` use instead of cached once per
+  `EngineImpl` instance) — pure perf difference, not behavioral.
+  Fixed a real, pre-existing bug this surfaced: `apply.rs`'s `apply_templates_dry_run` (task 3.6)
+  had its inline sample template hardcoded to the old bare-variable grammar
+  (`{{ primary }}`/`{{ surface }}`); updated to `{{colors.primary.default.hex}}`/
+  `{{colors.surface.default.hex}}` — the dry-run stub's own test still passes unchanged since the
+  rendered *values* are identical, only the template source syntax needed to match reality.
+  Tests: 24 new unit tests in `template.rs` (block/for/if parsing incl. the whole-line-consumption
+  rule and negated `if not`, nested for+if, dotted color resolution across `dark`/`light`/
+  `default`, `hover`/`on_hover` aliasing, unknown-color reports `{{UNKNOWN:...}}` and counts an
+  error while an unknown bare expression passes through raw *without* counting one — matches the
+  C++'s asymmetric `processColorExpression` vs. fallback-`{{expr}}` paths exactly, every filter
+  (grayscale/invert/set_alpha/set_lightness/set_hue/rotate_hue/set_saturation/lighten/darken/
+  saturate/desaturate/auto_lightness/set_red/set_green/set_blue/blend/harmonize/replace/
+  lower_case/camel_case/pascal_case/to_color), `palettes.*` yielding exactly 18 real hex tones,
+  invalid-filter-argument logging an error and leaving the value unchanged, and a real-fixture
+  test rendering the actual `assets/templates/gtk/gtk3.css` (read via `CARGO_MANIFEST_DIR`, not
+  copied/simplified) against a hand-built `GeneratedPalette` covering exactly its 7 referenced
+  tokens, asserting zero template errors — deliberately not routed through
+  `expand_builtin_palette`/`expand_material_from_seed` for this specific assertion, since those
+  still carry the already-recorded, unrelated task-3.2 `expand_fixed_palette_mode` gap
+  (`surface_container` and similar derived tokens) that would have made a zero-error assertion
+  fail for a reason unrelated to this task.
+  `just check`: clean (`noctalia-theme` up to 87 tests from 65; `cargo tree -i openssl-sys` ->
+  nothing depends on it).
+Half-finished: nothing (4.2.6b.2 is explicitly split out and unstarted in MIGRATION_PLAN.md, same
+  pattern as 4.2.3b/4.2.6b's own prior splits — not partial work).
+Next step: task 4.2.6b.2 (`applyCustomColors`/`processConfigTemplates` orchestration: dynamic
+  input/output paths via subprocess, hooks, `post_action` dispatch incl. the still-missing
+  `applyFirefoxTheme` profile-install logic, HCT-based custom-color harmonization via
+  `material_colors::scheme::variant::*`, multi-client output gating), or skip past it to task 4.3
+  (hooks) / Phase 5 (system monitors) if 4.2.6b.2 turns out to want its own further split once
+  scoped for real — check `firefox_theme.cpp`'s size before committing to doing it inline.
 
 

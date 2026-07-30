@@ -396,7 +396,7 @@ pub fn apply_templates_dry_run(
     for template_id in enabled_templates {
         let out_file = target_dir.join(format!("{template_id}.conf"));
         let sample_template = format!(
-            "# {template_id} theme\nprimary = {{{{ primary }}}}\nsurface = {{{{ surface }}}}\n"
+            "# {template_id} theme\nprimary = {{{{colors.primary.default.hex}}}}\nsurface = {{{{colors.surface.default.hex}}}}\n"
         );
         let result = engine.render(&sample_template);
         if result.error_count == 0 && fs::write(&out_file, &result.text).is_ok() {

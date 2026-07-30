@@ -615,6 +615,64 @@ by design).
       byte-for-byte for a fixture with no dynamic paths/hooks/post-actions (those
       need live subprocess execution — manual check, same pattern as other
       live-service-dependent tasks in this plan).
+      **Split (session 47, discovered while starting 4.2.6b that its own prerequisite
+      is broken — `render`/`render_file` (task 3.5, checked off) is not a port of
+      `template_engine.cpp`'s actual grammar at all, it's a much simpler stand-in: no
+      `<* if/for *>` block syntax, no `colors.<name>.<mode>.<format>` dotted
+      expression resolution, no `palettes.<name>` tone iteration, none of the real
+      filter set (case-conversion, `replace`, the 14 HSL color filters, `blend`/
+      `harmonize`). Confirmed this isn't academic: every real template under
+      `assets/templates/` uses `{{colors.X.mode.format}}` (`grep -rl 'colors\.'
+      assets/templates/` → 21 files; `<*`/block syntax → 0 files, so only the
+      expression grammar is load-bearing in practice, not the block tags — but
+      `for`/`if` still needs porting for template authors who use them, per the C++
+      grammar). Session 41's own log entry undersold this ("variable substitution and
+      filters" sounds complete but implemented 5 trivial filters against bare
+      variable names, not the real grammar) — no test exists pinning it against a
+      real template, which is how this went unnoticed through 3.6/4.2.6a/4.2.7.
+      Checkbox on 3.5 intentionally NOT reopened (matches the 3.2/session-30
+      precedent) since fixing it is squarely required by 4.2.6b's own done-bar
+      ("CLI-level render of a real template config matches the C++ output
+      byte-for-byte") — split into 4.2.6b.1/4.2.6b.2 instead, first of which fixes
+      3.5's actual gap.**:
+      - [x] 4.2.6b.1 Real template expression/block engine — replace `template.rs`'s
+        `render`/`render_file`/`evaluate_expression`/`apply_filter` with an actual
+        port of `template_engine.cpp`'s private `EngineImpl`: `<* ... *>` block
+        tokenizer (incl. the whole-line-whitespace-only consumption rule),
+        `TextNode`/`ForNode`/`IfNode` parser (`for x, y in expr` / `if [not]
+        {{expr}}`), `VariableScope` (stack of maps, `loop.index`/`first`/`last`),
+        `resolveExpressionValue`/`resolveFromScope`/`processColorExpression`
+        (`colors.<name>.<mode>.<format>`, `mode`/`closest_color`/`image`/
+        `config_dir`/`config_file` base vars, colors map sorted-key + `default`
+        aliasing, `hover`/`on_hover` aliases), `resolveIterable` (int ranges,
+        `colors`, `palettes.<name>` via `material_colors::palette::TonalPalette`
+        already used by task 3.3's `scheme.rs`, scope arrays/maps), the real filter
+        set (`replace`/`lower_case`/`camel_case`/`pascal_case`/`snake_case`/
+        `kebab_case`/`to_color`, the 14 HSL color filters, `blend`/`harmonize` via
+        plain HSL hue rotation — not HCT, that's only `applyCustomColors`'s
+        `harmonizeHex`), `findClosestColor`/Lab distance. Done: unit tests covering
+        block/for/if parsing, dotted color resolution across modes, every filter,
+        `palettes.*` tone iteration, `findClosestColor`; a real fixture from
+        `assets/templates/` (e.g. `gtk/gtk3.css`) renders with zero template errors
+        against a real `GeneratedPalette`.
+      - [ ] 4.2.6b.2 `applyCustomColors`/`processConfigTemplates` orchestration —
+        needs 4.2.6b.1. `ParsedTemplateEntry` + `parseTemplateEntry`/
+        `parseInputPathModes`/`parseOutputPaths`/`parseColorsToCompare`,
+        `inferClientConfigRoot`/`markMultiClientGatedEntries`/
+        `shouldSkipTemplateOutput`, `expandXdgBaseDir`/`resolveConfigPath`/
+        `appendPathsFromDynamicStdout` (dynamic input/output paths via
+        `process::run_sync_shell`), hook execution, `makeCustomColorScheme`
+        (5 M3 variants via `material_colors::scheme::variant::*`, already a
+        dependency)/`harmonizeHex` (HCT hue rotation) for `[config.custom_colors]`.
+        `post_action` dispatch: `kde-color-scheme` already available
+        (`outputs::apply_kde_color_scheme`); `firefox-theme` is NOT — `outputs.rs`
+        only has `generate_firefox_theme_css` (CSS string generation), not
+        `applyFirefoxTheme` (`firefox_theme.{h,cpp}`'s profile-discovery + install
+        logic the C++ post-action actually calls) — port that as part of this task
+        or split it out first if it turns out to be its own multi-hour piece (check
+        `firefox_theme.cpp`'s size before starting). Then wire `-r <in:out>` and
+        `-c <file>`/`--builtin-config` into the CLI. Done: same as 4.2.6b's original
+        done-bar above.
   - [x] 4.2.7 theme CLI: `--list-templates` — needs a real builtin-template-catalog
     reader (port of `builtin_templates.cpp`'s `loadBuiltinTemplateInfo`, reading
     `assets/templates/builtin.toml`) and community-template listing (port of the
