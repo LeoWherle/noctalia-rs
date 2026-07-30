@@ -2600,4 +2600,67 @@ Next step: task 5.1 (CPU stat + temp — `cpu_stat.*`, `cpu_temp_sensor.*` → `
   (template orchestration / Firefox theme apply) remain open, scoped, and not blocking anything
   else — pick either whenever convenient.
 
+Continued same session — task 5.1 (CPU stat + temp), the first Phase 5 task.
+Attempted: task 5.1 as scoped (`src/system/{cpu_stat,cpu_temp_sensor}.*` → `noctalia-system`).
+Done: 5.1. New `crates/noctalia-system/src/{cpu_stat,cpu_temp}.rs` (flat modules, mirroring the
+  C++'s own file split, not a nested `cpu::` module — noted under the plan checkbox), wired into
+  the previously-empty skeleton crate's `lib.rs`. First real content in `noctalia-system`. No new
+  dependencies (pure `std::fs`/string logic).
+  `cpu_stat.rs`: `Totals{total,idle}`, `parse_line` (mandatory user/nice/system/idle via
+  `split_whitespace`+`parse`, optional trailing iowait/irq/softirq/steal default to 0 on
+  missing/unparseable rather than rejecting the whole row — one documented, unreachable-in-
+  practice divergence from the C++'s sticky-`istream`-fail cascade, where a malformed *trailing*
+  field would zero every field after it too, not just itself), `usage_between` (backwards/equal
+  total → `None`, backwards idle clamped via `saturating_sub` not wrapped, result clamped to
+  `[0,100]`), `read_totals`/`read_core_totals` (the latter capturing non-contiguous `cpuN` labels
+  by the row's own label rather than a positional guess, so an offlined core's gap doesn't desync
+  the rest; an unparseable `cpuN` row fails the whole read rather than silently truncating).
+  `cpu_temp.rs`: `Reading`/`ProbeResult`, `read` (configured-path override → known-hwmon-driver
+  auto-detect → thermal-zone fallback → "no sensor found" error), `choose_known_hwmon_sensor`/
+  `choose_thermal_zone_sensor` (drop zero readings when any non-zero candidate exists, then pick
+  by driver/sensor priority with an `input_path` string tie-break), `sensor_priority_for_driver`/
+  `known_driver_priority` (k10temp/zenpower/coretemp/ibmpowernv label-prefix priority tables,
+  ported number-for-number), `read_configured_sensor` (filename-shape → exists → regular-file →
+  parses validation chain, each stage's own error message, no silent fallback to auto-detection
+  on failure). `read_small_text_file` is a minimal pull-forward of `FileUtils::
+  readSmallTextFile` (`src/util/file_utils.h`, no owning task yet) — same "minimal shared piece"
+  pattern as 1.6.5's `generate_uuid_v4`; reproduces the C++'s specific "empty-check runs before
+  the trim loop" ordering, so a whitespace-only line is `Some("")` not `None`. `sorted_directories`
+  follows symlinks (`fs::metadata`, not `fs::symlink_metadata`/`DirEntry::file_type`) matching
+  `directory_entry::is_directory()`'s default — load-bearing on a real system since
+  `/sys/class/hwmon/hwmonN` entries are themselves symlinks, even though the fixture-based tests
+  (real directories, no symlinks involved) wouldn't have caught a no-follow bug either way.
+  Tests: 7 new in `cpu_stat.rs` covering every scenario in `tests/cpu_stat_test.cpp` (line
+  parsing incl. label-pinning and missing-trailing-fields, usage delta maths incl. backwards
+  counters, the fixture-file round trip incl. offlined-core gap/single-core/aggregate-only/
+  broken-row cases, per-core delta independence) restructured into separate `#[test]` fns rather
+  than the C++'s one sequential `main()` (no shared mutable state between them, so no ordering
+  requirement to preserve). 7 new in `cpu_temp.rs` porting all 7 scenarios in
+  `tests/cpu_temp_sensor_test.cpp` (AMD Tctl preference, motherboard CPU-labeled sensor on an
+  unknown driver ignored in favor of a known one, Intel package-sensor preference, configured-path
+  override, invalid configured path not falling back to auto-detection, a zero-reading auto
+  candidate skipped in favor of a non-zero one, thermal-zone fallback when no known hwmon driver
+  exists).
+  Pre-done review (rule 3, fresh subagent) found no blocking issues; two non-blocking notes it
+  raised were fixed anyway since they were one-line changes: (1) `input_path` tie-breaks in both
+  `choose_known_hwmon_sensor`/`choose_thermal_zone_sensor` used `Path`'s component-wise `Ord`
+  instead of string comparison — `Path::cmp` can disagree with the C++'s `string() <`
+  comparison across characters that sort differently than `/` (confirmed with a small repro,
+  e.g. `"a-b"` vs `"a/b"`), unreachable on real kernel-generated `hwmonN`/`thermal_zoneN` names
+  but a one-line fix (`to_string_lossy().cmp(...)`) to make it byte-exact regardless; (2)
+  `read_input_celsius` used `split_whitespace().next()?.parse()`, which rejects a token with
+  trailing non-digit garbage (`"43000abc"`) where the C++'s `file >> raw` reads the leading
+  digits and ignores the rest — also unreachable for real sysfs content (always a bare integer),
+  fixed to match the C++'s leading-digits-then-stop behavior exactly. Reviewer independently
+  verified every priority-table number/label-prefix against `cpu_temp_sensor.cpp:98-165`, the
+  `read_small_text_file` empty-before-trim ordering, the symlink-following claim, and all 14
+  ported test scenarios; ran clippy/tests/fmt independently.
+  `just check`: clean (`noctalia-system` now has 14 tests, up from 0).
+Half-finished: nothing.
+Next step: task 5.2 (memory/disk/net counters — rest of `src/system` stat readers incl. disk
+  mounts → `system::{mem,disk,net}`; port `tests/disk_mounts_test.cpp` + fixtures), the next
+  Phase 5 task in plan order. 4.2.6b.2/4.2.6b.3 (template orchestration / Firefox theme apply)
+  remain open and unblocking, pick whenever convenient. This closes out the 3 tasks queued for
+  this session (4.2.6b.1, 4.3, 5.1).
+
 

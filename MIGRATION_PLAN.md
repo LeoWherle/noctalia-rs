@@ -702,8 +702,11 @@ by design).
   `tests/hook_manager_test.cpp`, `tests/battery_hook_state_test.cpp`.
 
 ### Phase 5 — System monitors (`crates/noctalia-system`)
-- [ ] 5.1 CPU stat + temp — src: `cpu_stat.*`, `cpu_temp_sensor.*` → `system::cpu`.
+- [x] 5.1 CPU stat + temp — src: `cpu_stat.*`, `cpu_temp_sensor.*` → `system::cpu`.
   Done: port `tests/cpu_stat_test.cpp`, `cpu_temp_sensor_test.cpp` (fixture /proc data).
+  Landed as flat `noctalia-system::{cpu_stat,cpu_temp}` modules (mirrors the C++'s own
+  `cpu_stat.cpp`/`cpu_temp_sensor.cpp` file split) rather than a nested `cpu::` module — same
+  flat-crate-root pattern already used elsewhere (e.g. `noctalia-config`'s top-level modules).
 - [ ] 5.2 Memory/disk/net counters — src: rest of `src/system` stat readers incl. disk
   mounts → `system::{mem,disk,net}`. Done: port `tests/disk_mounts_test.cpp` + fixtures.
 - [ ] 5.3 Brightness — src: `brightness_service.*`, `brightness_poll_source.h` →
