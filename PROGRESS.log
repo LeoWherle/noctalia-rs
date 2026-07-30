@@ -2526,4 +2526,78 @@ Next step: task 4.2.6b.2 (`applyCustomColors`/`processConfigTemplates` orchestra
   (hooks) / Phase 5 (system monitors) if 4.2.6b.2 turns out to want its own further split once
   scoped for real — check `firefox_theme.cpp`'s size before committing to doing it inline.
 
+Continued same session — task 4.3 (hooks).
+Attempted: task 4.3 as scoped (`src/hooks/*` → `shell::hooks`).
+Done: 4.3. Checked `firefox_theme.cpp`'s size first per the 4.2.6b.2 note above (869 lines,
+  1419 across the module) and split `applyFirefoxTheme` out as new task 4.2.6b.3 rather than
+  folding it into 4.2.6b.2 — recorded in MIGRATION_PLAN.md with its own done-bar. Also fixed
+  4.2.6b.1's own done-bar text (it still named `findClosestColor` as a required test target after
+  that function was deferred to 4.2.6b.2 during the actual port — stale wording, not a scope
+  change). Both plan-only fixes committed separately before starting 4.3's code.
+  New `crates/noctalia-shell/src/hooks/{mod,manager,battery}.rs`, the first library code in
+  `noctalia-shell` (previously bin-only — added `src/lib.rs`, `pub mod hooks;`, and a
+  `noctalia-core` path dependency for its `Logger`).
+  `manager.rs`: port of `hook_manager.{h,cpp}` — `HookManager::{new,set_command_runner,
+  set_blocking_command_runner,reload,config,fire,fire_blocking,fire_with_env}`, `CommandRunner`
+  as `Box<dyn Fn(&str) -> bool>` (the C++'s `std::function<bool(const std::string&)>`).
+  `fireWithRunner`'s `kind == HookKind::Count` guard has no Rust equivalent — the already-ported
+  `HookKind` (task 2.1.8) has no `Count` sentinel variant, so `HooksConfig::commands`'s match is
+  exhaustive without one and the C++ check is unreachable by construction; dropped rather than
+  translated (recorded in the module doc comment). `fire_with_env` needed `unsafe { std::env::
+  set_var/remove_var }` (edition-2024 makes both `unsafe fn`) — SAFETY comments record the actual
+  hazard (races with concurrent env reads/writes from another thread) and the precondition this
+  matches from the C++'s own raw `setenv`/`unsetenv` (single main-loop-thread caller,
+  architecture decision 1), not boilerplate.
+  Added `HooksConfig::commands(&self, kind: HookKind) -> &[String]` to
+  `noctalia-config::types::hooks` (small, obviously-needed companion to task 2.1.8's already-
+  shipped `hook_kind_key`/`hook_kind_from_key`, not a new task): the C++'s `HooksConfig` stores
+  one positionally-indexed `std::array<..., HookKind::Count>`, while the already-ported Rust
+  `HooksConfig` (task 2.1.8) uses 18 named fields instead (a reasonable, more idiomatic choice at
+  the time, functionally equivalent since TOML keys map to field names either way) — this method
+  is the index-by-`HookKind` accessor `HookManager` needs on top of that, an 18-arm match checked
+  arm-by-arm against `kHookKinds` in `config_types.h`.
+  `battery.rs`: port of `battery_hook_state.{h,cpp}` — `BatteryHookState::{reset,update}`, the
+  private `batteryStateHook`/`batteryStateHookValue`/`normalizedBatteryPercent` free functions.
+  `BatteryState`/`UPowerState` are minimal pull-forwards of the same-named types in
+  `src/dbus/upower/upower_service.h` (task 6.2, D-Bus/UPower — not yet ported anywhere in the
+  Rust tree): only the 3 fields `battery_hook_state.cpp` actually reads (`state`, `percentage`,
+  `isPresent`), not UPower's whole device model — same "minimal shared piece, delete once the
+  real task lands" pattern as task 1.6.5's local `generate_uuid_v4` and task 2.1.3's `KeyChord`
+  POD. Recorded in the module doc comment.
+  Tests: ported `tests/hook_manager_test.cpp`'s single `main()` verbatim (env-set/runner-sees-
+  values/env-unset-after, guarded by a crate-local `ENV_MUTATION_LOCK` even though nothing else
+  in this crate currently races it — cheap insurance, same reasoning as `noctalia-core::process::
+  test_support::ENV_MUTATION_LOCK`) plus 3 new tests with no C++ counterpart (no-configured-
+  commands is a silent no-op, `fire_blocking` prefers the blocking runner and reports a command
+  failure, `fire_blocking` falls back to the async runner when no blocking one is set, returns
+  false with neither set). Ported `tests/battery_hook_state_test.cpp`'s full assertion sequence
+  verbatim (every `update()` call, exact event count/kind/env at each step, incl. the
+  state-hook-before-percentage-event ordering on the `FullyCharged` step) plus a
+  `normalized_battery_percent` edge-case test (NaN/infinity/negative/over-100/rounding) with no
+  C++ counterpart.
+  Noticed (not caused, not fixed — this diff touches nothing under `noctalia-core`): one
+  `just check` run hit a failure in `noctalia-core::files::paths::tests::
+  expand_user_path_expands_tilde`; reran it in isolation (`cargo test -p noctalia-core --lib
+  expand_user_path_expands_tilde -- --test-threads=1`) and it passed, then reran the full `just
+  check` clean — a pre-existing env-var-race flake in already-shipped test code (task 1.2/1.6.3
+  territory), not a regression from this session. Worth a future session's attention if it
+  recurs, not investigated further here.
+  Pre-done review (rule 3, fresh subagent): independently re-verified the `HookKind::Count`
+  drop is sound (the `commands` match is exhaustive, no wildcard arm — no way to construct an
+  out-of-range `HookKind`), checked all 18 `commands()` match arms against `kHookKinds` in
+  `config_types.h` line-by-line, confirmed `set_var`/`remove_var` really are `unsafe fn` at the
+  pinned toolchain and the SAFETY comments name the real hazard, traced `battery_hook_state.cpp`'s
+  full state machine including the not-present reset path and the state-then-percentage event
+  ordering, confirmed the 3-field `UPowerState` subset is actually sufficient (grepped
+  `battery_hook_state.cpp` for every field access), confirmed both C++ tests are ported in full
+  (not a subset), ran clippy/fmt independently, and confirmed the flaky-test diagnosis by checking
+  `git diff --stat` touches nothing under `noctalia-core`. No blocking findings.
+  `just check`: clean (`noctalia-shell` lib now has 7 tests, `noctalia-config` up by 1).
+Half-finished: nothing.
+Next step: task 5.1 (CPU stat + temp — `cpu_stat.*`, `cpu_temp_sensor.*` → `system::cpu`; port
+  `tests/cpu_stat_test.cpp`, `cpu_temp_sensor_test.cpp` with fixture `/proc` data), the first
+  Phase 5 task and the next not-yet-done Phase A task in plan order. 4.2.6b.2/4.2.6b.3
+  (template orchestration / Firefox theme apply) remain open, scoped, and not blocking anything
+  else — pick either whenever convenient.
+
 

@@ -698,7 +698,7 @@ by design).
     available_templates()` is currently a **hardcoded 3-entry stub**, not a real
     port — discovered while scoping this task, not a new regression; replace it
     here rather than building `--list-templates` on top of the stub.
-- [ ] 4.3 Hooks — src: `src/hooks/*` (4 files) → `shell::hooks`. Done: port
+- [x] 4.3 Hooks — src: `src/hooks/*` (4 files) → `shell::hooks`. Done: port
   `tests/hook_manager_test.cpp`, `tests/battery_hook_state_test.cpp`.
 
 ### Phase 5 — System monitors (`crates/noctalia-system`)

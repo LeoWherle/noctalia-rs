@@ -889,6 +889,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "noctalia-config",
+ "noctalia-core",
  "noctalia-ipc",
  "noctalia-theme",
 ]

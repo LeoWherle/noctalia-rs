@@ -11,5 +11,6 @@ workspace = true
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 noctalia-config = { path = "../noctalia-config" }
+noctalia-core = { path = "../noctalia-core" }
 noctalia-ipc = { path = "../noctalia-ipc" }
 noctalia-theme = { path = "../noctalia-theme" }

@@ -115,6 +115,34 @@ pub struct HooksConfig {
     pub power_profile_changed: Vec<String>,
 }
 
+impl HooksConfig {
+    /// Port of `HooksConfig::commands[static_cast<size_t>(kind)]`'s indexing (the C++ stores an
+    /// `std::array<..., HookKind::Count>` member indexed positionally; this struct stores the
+    /// same 18 slots as named fields instead, so `HookManager` looks them up by name here).
+    pub fn commands(&self, kind: HookKind) -> &[String] {
+        match kind {
+            HookKind::Started => &self.started,
+            HookKind::WallpaperChanged => &self.wallpaper_changed,
+            HookKind::ColorsChanged => &self.colors_changed,
+            HookKind::ThemeModeChanged => &self.theme_mode_changed,
+            HookKind::SessionLocked => &self.session_locked,
+            HookKind::SessionUnlocked => &self.session_unlocked,
+            HookKind::LoggingOut => &self.logging_out,
+            HookKind::Rebooting => &self.rebooting,
+            HookKind::ShuttingDown => &self.shutting_down,
+            HookKind::WifiEnabled => &self.wifi_enabled,
+            HookKind::WifiDisabled => &self.wifi_disabled,
+            HookKind::BluetoothEnabled => &self.bluetooth_enabled,
+            HookKind::BluetoothDisabled => &self.bluetooth_disabled,
+            HookKind::BatteryCharging => &self.battery_charging,
+            HookKind::BatteryDischarging => &self.battery_discharging,
+            HookKind::BatteryPlugged => &self.battery_plugged,
+            HookKind::BatteryPercentageChanged => &self.battery_percentage_changed,
+            HookKind::PowerProfileChanged => &self.power_profile_changed,
+        }
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
