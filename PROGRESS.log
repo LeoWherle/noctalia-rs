@@ -2994,4 +2994,77 @@ Next step: task 5.4.2 (threshold/label resolution + real notification firing) st
   orchestration incl. GPU vendor readers, its own not-yet-audited `src/system` files) remains open
   and unblocking — pick whenever convenient.
 
+## 2026-07-30 (session 52)
+Attempted: task 5.5 — app identity + desktop entries. Split it before starting (same protocol as
+  1.6/5.3/5.4): read all four `src/system` files it covers (`app_identity.*` 205, `internal_app_
+  metadata.*` 85, `desktop_entry.*` 636, `desktop_entry_launch.*`/`terminal_launch.*` 273+158,
+  `desktop_entry_poll_source.h` 26, `icon_resolver.*` 575 — 2275 lines total against 3 C++ test
+  files) and found four genuinely independent concerns, one of which (`icon_resolver.cpp`) needs a
+  brand-new Phase-A FFI surface (`gio`'s `GSettings`, for the GNOME `icon-theme` key) not yet
+  present anywhere in the tree. Confirmed via `tests/app_identity_test.cpp` that `app_identity.cpp`
+  only needs the `DesktopEntry` struct *shape*, not the real scanner/registry (the test hand-builds
+  `DesktopEntry` values and stubs out `internal_apps` entirely) — so the struct definitions could
+  be pulled forward without the 636-line registry attached. Split into 5.5.1 (app identity +
+  internal app metadata + struct defs), 5.5.2 (desktop entry registry: INI parsing, XDG scan,
+  inotify reload — blocked on nothing, just unstarted), 5.5.3 (desktop entry launch + terminal
+  launch), 5.5.4 (icon resolver, blocked on confirming/adding `gio-2.0` pkg-config exposure in
+  `nix/rust-devshell.nix`, currently only `glib` is listed as a transitive dep).
+Done: 5.5.1. New `crates/noctalia-system/src/{desktop_entry,internal_app_metadata,app_identity}.rs`,
+  wired into `lib.rs` (flat modules, matching the crate's existing file-per-C++-file pattern, e.g.
+  5.1's `cpu_stat`/`cpu_temp`). `desktop_entry.rs`: `DesktopEntry`/`DesktopAction` struct
+  definitions only (field-for-field port of `desktop_entry.h`) — the registry/scanning API on that
+  same header (`scanDesktopEntries`/`desktopEntries`/`desktopEntriesSnapshot`/
+  `desktopEntriesVersion`/`desktopEntryWatchFd`/`checkDesktopEntryReload`/
+  `refreshDesktopEntriesIfSourcesChanged`) is explicitly deferred to 5.5.2, noted in the module doc
+  comment. `internal_app_metadata.rs`: straight port of `internal_app_metadata.{cpp,h}`
+  (`appDefinitionForAppId`/`appDefinitionForWindowTitle`/`definitionForDesktopEntry`/
+  `metadataForAppId`/`metadataForDesktopEntry`/`applyMetadataToDesktopEntry`), using already-ported
+  `noctalia_core::files::paths::asset_path`. `app_identity.rs`: port of `app_identity.{cpp,h}`
+  (`identityKey`/`identityKeyMatches`/`appIdTail`/`findDesktopEntryByIdTail`/
+  `resolveRunningDesktopEntryWithStatus`/`matchesLower`/`desktopEntryMatchesLower`/
+  `findDesktopEntry`/`resolveRunningDesktopEntry`/`resolveRunningApps`).
+  `identityKey`'s `unsigned char`-wise C++ iteration is ported byte-wise over `value.bytes()`
+  (not `char`-wise), building a `Vec<u8>` and converting once via `String::from_utf8_lossy` —
+  verified this preserves multi-byte UTF-8 sequences intact rather than corrupting them: every byte
+  stripped/lowercased is checked against ASCII-only literals (`.`/`-`/`_`/`std::isspace`'s six
+  bytes), which can never match a UTF-8 continuation byte (high bit set), and `to_ascii_lowercase()`
+  is a no-op outside `A`-`Z`. `StringUtils::toLower` throughout is ported as `.to_ascii_lowercase()`
+  (verified against `string_utils.h`'s `std::tolower`-per-byte implementation in the default "C"
+  locale — identity outside `A`-`Z`, same as Rust's ASCII-only lowercasing). Reused
+  `brightness.rs`'s already-ported `C_ISSPACE`/`is_c_isspace_byte` (promoted from private to
+  `pub(crate)`, doc comment updated) for `identityKey`'s whitespace check instead of duplicating a
+  third copy of `std::isspace` in the same crate — same same-crate-reuse precedent as 5.3.2 reusing
+  5.3.1's `c_trim`.
+  Tests: ported `tests/app_identity_test.cpp` verbatim as one `#[test]` (matches the C++ test's
+  single `main()` shape). The C++ test replaces `internal_apps::metadataForAppId`/
+  `applyMetadataToDesktopEntry` with no-op stand-ins via a second same-named namespace definition —
+  Rust has no equivalent link-time seam, so the ported test calls the *real* `internal_apps`
+  functions instead; verified this is behaviorally equivalent for every assertion in the test
+  (every fallback-path app id the test exercises, `Unknown.App`/`unknown-app`, differs from the one
+  real internal app id `dev.noctalia.Noctalia`, so the real function is a no-op exactly where the
+  C++ stub is). Added two tests with no C++ counterpart: one exercising the real `internal_apps`
+  integration path the C++ stubs prevented from ever being tested (`dev.noctalia.Noctalia` fallback
+  applies the real display name/icon), and one hand-verifying the byte-wise UTF-8 claim
+  (`identity_key("café")` survives intact).
+  Pre-done review (rule 3, fresh subagent): independently traced `identityKey`'s byte-wise UTF-8
+  safety claim, `StringUtils::toLower` vs `to_ascii_lowercase` equivalence (checked
+  `string_utils.h` directly), the ambiguous-tail tie-break path, the single-candidate shortcut, and
+  a subtle detail carried over faithfully rather than "fixed" (`desktopEntryMatchesLower`
+  recomputes `id`/`startupWmClass` lowercase fresh on every call instead of using the entry's
+  cached `*_lower` fields, but *does* use the cached `nameLower` — an asymmetry present in the C++
+  original too). Confirmed the stub-equivalence claim holds for every assertion, confirmed struct
+  field parity against `desktop_entry.h`, confirmed no registry/scanning scope leaked in, ran
+  `just check` independently (clean). No findings; verdict PASS.
+  `just check`: clean (`noctalia-system` now has 87 tests, up from 75).
+Half-finished: nothing.
+Next step: task 5.5.2 (desktop entry registry — `desktop_entry.cpp`'s INI parsing, XDG directory
+  scan, inotify-watched reload, version/snapshot cache, extending `system::desktop_entry`; no C++
+  test exists, done bar is fixture-driven parse tests + a real-inotify reload test, same precedent
+  as task 1.2's `file_watcher`). 5.5.3 (desktop entry launch + terminal launch, port
+  `tests/desktop_entry_launch_test.cpp`) and 5.5.4 (icon resolver — needs a new `gio-sys` FFI
+  binding for `GSettings`; check `nix/rust-devshell.nix` exposes `gio-2.0` via pkg-config first,
+  currently only `glib` is listed as a transitive dep — port `tests/icon_resolver_test.cpp`) remain
+  open, either order. 5.4.2 stays blocked (Phase 6.2 + `NotificationManager` scheduling). 5.6's
+  backlog remains open and unblocking.
+
 

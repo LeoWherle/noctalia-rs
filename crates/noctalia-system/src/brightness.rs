@@ -21,7 +21,9 @@ pub(crate) fn c_trim(s: &str) -> &str {
     s.trim_matches(C_ISSPACE.as_slice())
 }
 
-fn is_c_isspace_byte(b: u8) -> bool {
+/// `pub(crate)` so `app_identity.rs` (task 5.5.1), which needs the same `std::isspace` byte
+/// check as `identityKey`, can reuse it instead of duplicating it a second time in the crate.
+pub(crate) fn is_c_isspace_byte(b: u8) -> bool {
     C_ISSPACE.iter().any(|&c| c as u32 == u32::from(b))
 }
 

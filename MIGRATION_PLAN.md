@@ -759,6 +759,35 @@ by design).
   hand-ported to match C++ semantics exactly.
   [future-candidate: freedesktop-desktop-entry → B.14] Done: port `tests/app_identity_test.cpp`, `desktop_entry_launch_test.cpp`,
   `icon_resolver_test.cpp` (icon resolver may live here or ui — follow C++ placement).
+  **Split (session 52, same protocol as 1.6/5.3/5.4): 2275 combined C++ lines across 4
+  independent concerns — `app_identity.cpp` (205) only needs the `DesktopEntry` struct shape
+  (confirmed by reading `tests/app_identity_test.cpp`: it constructs `DesktopEntry` values by
+  hand and stubs out `internal_apps` entirely, never touching the real scanner/registry);
+  `desktop_entry.cpp` (636) is a separate concern, the real INI-parsing + inotify-watched
+  registry, with no dedicated C++ test of its own; `desktop_entry_launch.cpp` (273) +
+  `terminal_launch.cpp` (158) are argv preparation/launching, self-contained given
+  already-ported `core::process`/`files::paths::expand_user_path`;
+  `desktop_entry_poll_source.h` (26) is pure `PollSource` glue with no independent logic,
+  deferred to calloop wiring same as task 1.2's `FileWatchPollSource`; `icon_resolver.cpp`
+  (575) needs a genuinely new Phase-A FFI surface (`gio`'s `GSettings` — schema lookup +
+  read the GNOME `icon-theme` key), the first GIO binding in the migration.
+  - [x] 5.5.1 App identity + internal app metadata — `app_identity.*`,
+    `internal_app_metadata.*`, and the `DesktopEntry`/`DesktopAction` struct definitions
+    (scanning/registry logic stays with 5.5.2) → `system::{app_identity,
+    internal_app_metadata,desktop_entry}`. Done: port `tests/app_identity_test.cpp`.
+  - [ ] 5.5.2 Desktop entry registry — `desktop_entry.cpp`'s INI parsing, XDG directory
+    scan, inotify-watched reload, version/snapshot cache → extends `system::desktop_entry`.
+    No C++ test exists; done bar is fixture-driven parse tests + a real-inotify reload test
+    (same precedent as task 1.2's `file_watcher` tests).
+  - [ ] 5.5.3 Desktop entry launch + terminal launch — `desktop_entry_launch.*`,
+    `terminal_launch.*` → `system::{desktop_entry_launch,terminal_launch}`. Done: port
+    `tests/desktop_entry_launch_test.cpp`.
+  - [ ] 5.5.4 Icon resolver — `icon_resolver.*` → `system::icon_resolver` (icon resolver may
+    live here or ui — follow C++ placement, per the original task note).
+    [future-candidate: freedesktop-desktop-entry/icon lookup → B.14] Needs a new `gio-sys`
+    FFI binding (`GSettings` schema lookup + `icon-theme` key read) — check `nix/
+    rust-devshell.nix` exposes `gio-2.0` via pkg-config (currently only `glib` is listed as a
+    transitive dep) before starting. Done: port `tests/icon_resolver_test.cpp`.
 - [ ] 5.6 Remaining `src/system` services (audit dir, list them in PROGRESS.log, split
   if >2h) → `system::*`. Done: each has at least a smoke test; ported tests green.
 
