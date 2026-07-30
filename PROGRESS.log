@@ -2767,4 +2767,86 @@ Next step: task 5.3 (brightness — `brightness_service.*`, `brightness_poll_sou
   plus its own not-yet-audited `src/system` files) stays open and unblocking — pick whenever
   convenient.
 
+## 2026-07-30 (session 49)
+Attempted: task 5.3 (brightness). Split it before starting (same protocol as task 1.6/session 8).
+Done: plan-only split, then 5.3.1. `src/system/brightness_service.cpp` is 1673 lines, and unlike
+  task 5.2's stat readers, most of it has a hard *forward* dependency on phases that don't exist
+  in the Rust tree yet: `WaylandConnection`/`WaylandOutput` (Phase 10, connector enumeration used
+  to match a backlight device to a display), `CompositorPlatform` (Phase 9), and `SystemBus`/
+  sdbus-c++ for logind `SetBrightness` (Phase 6) — confirmed by reading the file's `#include`s and
+  tracing `resolveBacklightConnector`/`enumerateBacklights`/`resolveSessionPath`'s actual type
+  usage, not just guessing from includes. Replaced 5.3's single checkbox with 5.3.1/5.3.2/5.3.3 in
+  MIGRATION_PLAN.md: 5.3.1 (sysfs value mapping + candidate ranking, no such dependency — done
+  this session), 5.3.2 (DDC/CI `ddcutil` subprocess protocol, also dependency-free — not started),
+  5.3.3 (the full `BrightnessService` orchestration — explicitly **blocked** until Phase 6/9/10
+  land, not just deferred-for-later-convenience like 5.6's backlog).
+  New `crates/noctalia-system/src/brightness.rs`, wired into `lib.rs`. Ports the pure,
+  dependency-free slice of `brightness_service.cpp`: `readSysfsInt` -> `read_sysfs_int`,
+  `normalizedBrightness` -> `normalized_brightness`, `readBacklightBrightness` ->
+  `read_backlight_brightness`, `readBacklightType` -> `read_backlight_type` (using
+  `StringUtils::trim`/`toLower`'s actual `std::isspace`-based semantics, read from
+  `util/string_utils.h` rather than assumed), `extractBacklightDeviceName` ->
+  `extract_backlight_device_name`, `backlightTypeRank`/`backlightNamePenalty`/
+  `isBetterBacklightCandidate` -> `backlight_type_rank`/`backlight_name_penalty`/
+  `is_better_backlight_candidate` against a new minimal `BacklightCandidate` struct (only the 4
+  fields the C++ comparator actually reads, not the full `DisplayInternal` it's embedded in), and
+  a new `scan_backlight_devices`/`BacklightDevice` covering the sysfs-only (pre-Wayland-matching)
+  half of `enumerateBacklights` — the `maxBrightness <= 0` skip guard and `opendir`-failure-is-
+  empty-not-error behavior preserved, everything after that (Wayland-connector matching, config-
+  override filtering, inotify watch setup) correctly left for 5.3.3.
+  Pre-done review (rule 3, fresh subagent) found one real, confirmed bug: `read_sysfs_int`
+  collapsed two distinct C++ `operator>>` outcomes into one. The reviewer didn't just recite the
+  "C++11 sets 0 on failed extraction" rule — it compiled and ran real C++ (`istringstream` and a
+  real `ifstream` against actual empty/whitespace-only/garbage files) and found the real rule has
+  two branches: if the stream hits EOF *before finding any non-whitespace byte* (empty file,
+  whitespace-only file), the `sentry` itself fails without ever touching `value`, leaving it at
+  the caller's `-1` pre-init; only once a non-whitespace byte *is* found but doesn't parse into a
+  valid integer does `num_get::get` run and set `value = 0`. The original code's `if !saw_digit {
+  return 0 }` fired identically for both cases, so an empty or whitespace-only sysfs file read as
+  `0` instead of the correct `-1` — contradicted by its own doc comment and locked in by a test
+  that asserted the wrong value. The review also caught a same-root-cause companion bug: the
+  leading-whitespace-skip loop used `is_ascii_whitespace()` instead of the module's own
+  hand-rolled `C_ISSPACE` (which the module's *own* doc comment already explained is necessary
+  because Rust's ASCII-whitespace set omits vertical tab, unlike C's `isspace`) — so a value like
+  `"\v42"` would fail to skip the leading `\v` and misparse. Both fixed: `read_sysfs_int` now
+  detects "no non-whitespace byte before EOF" as its own branch (returns `-1`, matching the
+  sentry-failure path) separately from "found a byte, couldn't parse it" (returns `0`), and uses
+  `C_ISSPACE` for the leading skip. Doc comment corrected to describe the real two-branch rule
+  (noting it was verified against real `istream`/`ifstream` behavior, not just recited). Test
+  fixed (empty file now expects `-1`) and extended with a whitespace-only-file case (also `-1`), a
+  bare-sign case (`0`), and a leading-vertical-tab case (`\v42` -> `42`). Both call sites in this
+  file (`read_backlight_brightness`'s `normalizedBrightness` clamp, `scan_backlight_devices`'s
+  `max_raw <= 0` skip) happened to treat `-1` and `0` identically, so no currently-observable
+  output in *this* file's own scope was wrong — but `read_sysfs_int` is a shared primitive 5.3.2/
+  5.3.3 will likely reuse, so the fix matters going forward, not just for its own sake.
+  Everything else in the review passed on re-verification: `BacklightCandidate`'s field set
+  re-checked complete against the C++ comparator's actual field accesses; overflow-clamp direction
+  confirmed via compiled C++ (`"99999999999"` -> `INT_MAX`, `"-99999999999"` -> `INT_MIN`, matches
+  the Rust `i64`-accumulate-then-clamp exactly); `scan_backlight_devices` vs. `enumerateBacklights`
+  re-read statement-by-statement to confirm nothing from the sysfs-only portion was silently
+  dropped; no bare `unwrap`/`expect` outside tests, no `unsafe` in the file at all.
+  Tests: 12 (up from 0) — `read_sysfs_int`'s now-8-case fixture test (missing file, empty file,
+  whitespace-only file, garbage, bare sign, leading whitespace, leading vertical tab, negative,
+  trailing-garbage-stops-at-first-non-digit), `normalized_brightness` clamping, device-name
+  extraction, type-rank ordering, name-penalty flagging, 5 `is_better_backlight_candidate`
+  tie-break-stage tests (exact-DRM-match first, then type rank, then name penalty, then max_raw,
+  then lexicographic name), and `scan_backlight_devices` (a real 3-fixture-device directory incl.
+  a genuine `max_brightness=0` device confirmed excluded, plus a missing-directory-is-empty case).
+  No C++ test exists for any of this (confirmed: brightness_service.cpp has no corresponding
+  tests/ file) — same "no reference test, Rust-only tests are the task's own bar" pattern as
+  5.1/5.2's added coverage.
+  `just check`: clean (`noctalia-system` now has 54 tests, up from 42). Hit the same pre-existing
+  `noctalia-core::files::paths::tests::expand_user_path_expands_tilde` env-var-race flake session
+  14 already logged, twice in a row on this run before a third attempt came back clean; confirmed
+  again it passes in isolation (`--test-threads=1`) and touches nothing this session changed
+  (`noctalia-core` wasn't touched at all) — still not investigated further, still worth a future
+  session's attention if it keeps recurring at this rate.
+Half-finished: nothing.
+Next step: task 5.3.2 (DDC/CI `ddcutil` subprocess protocol — `parseDdcVcpBrightness`,
+  `ddcDetectArgs`/`ddcBaseArgs`, `queryDdcBrightness`, `detectDdcDisplays`, all in
+  `brightness_service.cpp`; self-contained, no Wayland/D-Bus dependency, built on already-ported
+  `noctalia-core::process`). 5.3.3 stays blocked on Phase 6/9/10. 5.6's backlog (deferred
+  `SystemMonitorService` orchestration, its own not-yet-audited `src/system` files) remains open
+  and unblocking — pick whenever convenient.
+
 

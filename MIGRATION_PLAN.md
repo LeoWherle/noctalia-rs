@@ -715,8 +715,30 @@ by design).
   retain/release ref-counting, multi-vendor GPU readers) is far larger than "stat readers"
   (1958-line source file) and is deferred to task 5.6.
 - [ ] 5.3 Brightness — src: `brightness_service.*`, `brightness_poll_source.h` →
-  `system::brightness` (sysfs + logind SetBrightness via Phase 6 when available; sysfs
-  first). Done: fixture-driven tests for device enumeration and value mapping.
+  `system::brightness`. Split before starting (same protocol as task 1.6): the C++ file is
+  1673 lines and, unlike task 5.2's stat readers, most of it has a hard forward dependency on
+  phases that don't exist in the Rust tree yet — `WaylandConnection`/`WaylandOutput` (Phase 10,
+  connector enumeration used to match a backlight device to a display), `CompositorPlatform`
+  (Phase 9), and `SystemBus`/sdbus-c++ (Phase 6, logind `SetBrightness`). Split into:
+  - [x] 5.3.1 Sysfs value mapping + backlight candidate ranking — the pure, dependency-free
+    slice: `readSysfsInt`/`normalizedBrightness`/`readBacklightBrightness`, `readBacklightType`,
+    `extractBacklightDeviceName`, `backlightTypeRank`/`backlightNamePenalty`/
+    `isBetterBacklightCandidate`, and a `/sys/class/backlight`-directory-listing enumerator (no
+    Wayland-connector attribution — that half of `enumerateBacklights` is 5.3.3). Done:
+    fixture-driven tests for value mapping and device enumeration (the task's original bar).
+  - [ ] 5.3.2 DDC/CI (`ddcutil` subprocess protocol) — `parseDdcVcpBrightness`,
+    `ddcDetectArgs`/`ddcBaseArgs`, `queryDdcBrightness`, `detectDdcDisplays`. Self-contained
+    (subprocess I/O via already-ported `noctalia-core::process` + string parsing), no Wayland/
+    D-Bus dependency either. Done: fixture/mock tests for VCP-brightness parsing and detect-output
+    parsing; a real `ddcutil` invocation is a manual check if available on the dev host, logged in
+    PROGRESS.log same as task 1.6.5's systemd check.
+  - [ ] 5.3.3 `BrightnessService` orchestration — `Impl`'s worker thread, DDC job
+    queue/epoch/cooldown state, `resolveBacklightConnector`'s DRM/Wayland-connector matching,
+    `enumerateBacklights`'s full Wayland-attributed enumeration, logind `SetBrightness` via
+    `SystemBus`, IPC registration, `onOutputsChanged`/config reload, `BrightnessPollSource`
+    (belongs with calloop wiring per the task-1.2 `FileWatchPollSource` precedent). **Blocked**:
+    cannot be completed until Phase 9 (compositors) + Phase 10 (Wayland core) + Phase 6 (D-Bus)
+    land — do not start until at least Wayland output enumeration exists.
 - [ ] 5.4 Battery warning logic — src: `battery_warning_monitor.*` → `system::battery`.
   Done: state-machine test ported (thresholds, hysteresis).
 - [ ] 5.5 App identity + desktop entries — src: `app_identity.*` and desktop-entry code
