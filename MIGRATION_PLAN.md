@@ -556,7 +556,7 @@ by design).
   - [ ] 4.2.4 config CLI: `settings-count` — needs
     `shell::settings::settings_registry` (`buildSettingsRegistry`/`SettingEntry`,
     3546-line `settings_registry.cpp`). Blocked on Phase 14 (settings window UI).
-  - [ ] 4.2.5 config CLI: `replay-report` — support-report reconstruction. Needs
+  - [x] 4.2.5 config CLI: `replay-report` — support-report reconstruction. Needs
     `StringUtils::shellQuote` (small, pull forward minimally like 1.6.5's
     `generate_uuid_v4`). Done: port the replay behavior (file+directory
     reconstruction, `--flattened`, `--force`) with hand-written tests (no C++

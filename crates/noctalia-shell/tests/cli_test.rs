@@ -4,7 +4,7 @@
 //! touches `main.rs`'s own `clap` parsing/dispatch (`Command::Config { args } =>
 //! noctalia_config::cli::run_cli(&args)`) — this covers that wiring specifically, against the
 //! real fixtures `tests/config_validate_cli_test.sh` uses. Extended in task 4.2.3 with
-//! `config export merged` coverage.
+//! `config export merged` coverage, and in task 4.2.5 with `config replay-report`.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -140,4 +140,53 @@ fn config_export_full_reports_not_implemented_yet() {
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("not implemented yet"), "stderr: {stderr}");
+}
+
+#[test]
+fn config_replay_report_reconstructs_config_and_state_home() {
+    let root = std::env::temp_dir().join(format!(
+        "noctalia-shell-cli-test-replay-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("create temp root");
+
+    let report_path = root.join("report.toml");
+    std::fs::write(
+        &report_path,
+        "[[config_sources]]\n\
+         relative_path = \"00-bar.toml\"\n\
+         content = \"[bar.default]\\nthickness = 42\\n\"\n\
+         \n\
+         [state_settings]\n\
+         exists = true\n\
+         content = \"[bar.default]\\nthickness = 55\\n\"\n",
+    )
+    .expect("write report fixture");
+
+    let target = root.join("out");
+    let output = noctalia_shell()
+        .args([
+            "config",
+            "replay-report",
+            report_path.to_str().unwrap(),
+            "--target",
+            target.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run noctalia-shell");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Run with:"), "stdout: {stdout}");
+
+    let config_content = std::fs::read_to_string(target.join("config-home/noctalia/00-bar.toml"))
+        .expect("read replayed config file");
+    assert_eq!(config_content, "[bar.default]\nthickness = 42\n");
+
+    let state_content = std::fs::read_to_string(target.join("state-home/noctalia/settings.toml"))
+        .expect("read replayed state file");
+    assert_eq!(state_content, "[bar.default]\nthickness = 55\n");
+
+    let _ = std::fs::remove_dir_all(root);
 }

@@ -2233,6 +2233,63 @@ Next step: task 4.2.4 (settings-count) or 4.2.5 (replay-report) — independent 
   of 4.2.3b/4.2.6/4.2.7, pick whichever; 4.2.4 needs a first check of whether Phase 14's settings
   registry has landed since this was last looked at (it hadn't, as of this session).
 
+## 2026-07-30 (session 46)
+Attempted: task 4.2.5 — config CLI `replay-report`.
+Done: confirmed Phase 14 (settings registry) still hasn't landed, so 4.2.4 stays blocked as
+  before; picked 4.2.5 per last session's "pick whichever" note.
+  Read `src/config/cli.cpp:88-421` end-to-end (`ReplayOptions`/`ReplayOptionsParse`,
+  `writeTextFile`, `safeRelativePath`, `prepareTarget`, `parseReplayOptions`, `replayReport`) plus
+  `StringUtils::shellQuote` (`string_utils.h:491-502`). Ported all of it into
+  `crates/noctalia-config/src/cli.rs`: `shell_quote` (pulled forward minimally, same pattern as
+  task 1.6.5's `generate_uuid_v4` — only this one function from `string_utils.h` is needed so
+  far), `ReplayOptions`/`ReplayOptionsParse`, `parse_replay_options`, `write_text_file`,
+  `safe_relative_path`, `prepare_target`, `resolve_target` (+ a small `lexically_normal` helper —
+  needed for real `..`-popping behavior in `resolve_target`'s `--target` resolution, even though
+  `safe_relative_path`'s call site never reaches it since it already rejects any `..` before
+  normalizing), `remove_dir_all_if_exists`, `replay_report`, and `run_replay_report`; wired into
+  `run_cli`'s dispatch and `REPLAY_HELP_TEXT` (ported verbatim from `kReplayHelpText`).
+  Matched C++ behavior exactly on: `--target`'s next-arg consumption and missing-value error;
+  `--force` wiping `config-home`/`state-home` (subdirs of `target`) only after `prepareTarget`
+  succeeds on `target` itself; the `exists`-boolean override semantics for both
+  `[state_settings]` (table-present-but-`exists=false` still hits the create-dir-only fallback
+  branch) and `[app_state]` (no fallback branch at all when absent/`exists=false`, matching the
+  C++'s asymmetry between the two); `config_sources`' fallback-index naming (`config_N.toml`,
+  incrementing only for entries that have a `content` key, matching the C++'s post-increment
+  placement after the content-presence continue); and the literal `argv[0]`-into-`shellQuote`
+  "Run with:" line (`std::env::args().next()` is the direct Rust equivalent of C++ reading
+  `argv[0]`, not an approximation).
+  Tests: 21 new unit tests in `cli.rs` (`shell_quote` plain/escaped, `safe_relative_path`
+  fallback/explicit/absolute-reject/`..`-reject/`.`-normalize, `run_replay_report` help/missing-
+  report-path/missing-target/missing-target-value, and `replay_report` end-to-end cases: full
+  reconstruction of config_sources+state_settings+app_state, flattened mode, flattened-without-
+  merged_config failure, refuse-existing-target-without-force, force-overwrites-stale-content,
+  unsafe-relative-path rejection, state_settings `exists=false` creates-dir-without-file, and
+  config_sources without `relative_path` using the `config_N.toml` fallback). Added one
+  subprocess-level test to `noctalia-shell/tests/cli_test.rs`
+  (`config_replay_report_reconstructs_config_and_state_home`) following the pattern task 4.2.2's
+  review established, plus manual checks against the compiled binary (`--help` text matches
+  `kReplayHelpText` verbatim; a full end-to-end run with `config_sources`+`state_settings`
+  correctly reconstructed both files and printed the "Run with:" line with correctly shell-quoted
+  paths).
+  Self-review (rule 3): re-derived every piece of C++ control flow listed above directly from
+  `cli.cpp` rather than trusting a first-pass summary (a subagent-based review was attempted but
+  the user declined the subagent spawn for this turn, so this was a careful same-context re-read
+  instead — flagged here since it deviates from the usual fresh-subagent pattern). Found no
+  correctness bugs; added two more unit tests (`state_settings` `exists=false`,
+  `config_sources`-without-`relative_path` fallback naming) to close test-coverage gaps the
+  review surfaced.
+  `just check`: hit one failure on first run,
+  `files::paths::tests::expand_user_path_expands_tilde` in `noctalia-core` — re-ran with
+  `--test-threads=1` and it passed clean, confirming a pre-existing flake (that test reads
+  `$HOME` while other parallel tests in the same file mutate it via `unsafe { env::set_var(...) }`
+  — a process-global race, not something this session's changes touch). Not fixed here (out of
+  scope for this task, unrelated file/crate); a full parallel re-run afterward came back green
+  (273 tests in noctalia-config, up from 254; 221 in noctalia-core; 7 in noctalia-shell incl. the
+  new subprocess test).
+Half-finished: nothing.
+Next step: task 4.2.6 (theme CLI core generate/render) — independent of 4.2.4 (still blocked) and
+  4.2.7; builds entirely on already-ported `noctalia-theme` (image/scheme/outputs/template). See
+  `src/theme/cli.cpp` for the reference `runCli`/generate path.
 
 
 
