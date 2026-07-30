@@ -2924,4 +2924,74 @@ Next step: task 5.3.3 (the full `BrightnessService` orchestration) stays **block
   `SystemMonitorService` orchestration incl. GPU vendor readers, its own not-yet-audited
   `src/system` files) remains open and unblocking — pick whenever convenient.
 
+## 2026-07-30 (session 51)
+Attempted: task 5.4 — battery warning logic. Split it before starting (same protocol as
+  1.6/5.3/5.4's-own-neighbor-5.3): read the full C++ (`battery_warning_monitor.{h,cpp}`, 210
+  lines) and found the same shape of hidden forward dependency as 5.3 — `batteryWarningThreshold
+  ForDevice`/`ForSelector` and `deviceKey`/`isSystemBattery` need `UPowerService`/
+  `upowerDeviceMatchesSelector` (Phase 6.2, not yet ported), and `fireLowBatteryNotification`
+  needs `NotificationManager`, which turns out not to have a scheduled migration task at all yet
+  (confirmed by reading Phase 6's task 6.11 note: "no dedicated task for that yet ... revisit when
+  scheduling"). `BatteryConfig` itself (the one real dependency that WAS already ported, task
+  2.1.7) checked out fine — confirmed its Rust shape (`warning_threshold`/`device_thresholds` in
+  `noctalia-config::types::battery`) matches what the state machine needs.
+Done: plan split (5.4 -> 5.4.1/5.4.2 in MIGRATION_PLAN.md) + 5.4.1. New
+  `crates/noctalia-system/src/battery_warning.rs`, wired into `lib.rs`. No new deps.
+  Ports the pure escalation state machine: `isPluggedIn` -> `is_plugged_in`, `alertPointsForDevice`
+  -> `alert_points_for_device` (system-battery deep levels at 5%/2%, only appended when strictly
+  below the configured threshold), `currentLevelFor` -> `current_level_for` (smallest alert point
+  at or above the current percentage, relying on the points list being guaranteed-descending by
+  construction — verified that invariant actually holds for every code path, not just the common
+  one), `kNoLevel` -> `NO_LEVEL` (101), and `BatteryWarningMonitor::evaluate` itself (the 3-way
+  re-arm/fire/arm-without-firing branch structure, and the seen-set pruning of devices no longer
+  reported).
+  Restructured for dependency injection, not behavior (module doc comment): `evaluate` takes a
+  caller-supplied `&[BatteryDeviceInput]` (standing in for what the C++ derives per-device from a
+  real `UPowerService`+`BatteryConfig` — key/is_system/threshold, all 5.4.2) and a
+  `fire(device, level)` closure (standing in for `fireLowBatteryNotification`, also 5.4.2) — same
+  "supply what the real dependency would resolve to, test the state machine independent of it"
+  pattern as 5.3.1/5.3.2's own restructurings this session, and as task 4.3's `HookManager`
+  `CommandRunner` closure from an earlier session.
+  `BatteryState` is a second, independent minimal pull-forward of `src/dbus/upower/
+  upower_service.h`'s enum of the same name — `noctalia_shell::hooks::battery` (task 4.3) already
+  pulled forward the identical type, but that's a different crate this one architecturally
+  shouldn't depend on (shell depends on system, not the reverse), so it's duplicated again rather
+  than imported; documented as such, same "minimal shared piece, delete once the real task lands"
+  pattern as 1.6.5's local `generate_uuid_v4`.
+  No C++ test exists for `battery_warning_monitor.cpp` (confirmed via grep over `tests/` — only an
+  unrelated `#include` reference elsewhere) — the task's own bar (state-machine test, thresholds/
+  hysteresis) is 17 new tests: every pure function's boundary values (disabled/negative threshold,
+  deep-level strict-inequality boundary at threshold 5/2/1, `current_level_for`'s full band walk),
+  and `evaluate`'s full state machine (startup fires the already-current level as a deliberate
+  boot-time safety notification, each level fires at most once per discharge, partial recharge
+  above every point vs. partial recharge into a shallower band re-arms differently, charging/
+  absent/disabled-threshold all re-arm without firing, an empty key is skipped and never tracked,
+  a device that drops out of a later call is pruned from internal state, multiple devices with
+  independent per-device alert points and fired-level bookkeeping). Caught and fixed two of its
+  own hand-calculation mistakes before this went to review (two tests asserted a shallower alert
+  level than `alert_points_for_device`/`current_level_for`'s real output actually produces at the
+  chosen percentage — a test bug, not an implementation bug; traced by hand against the real
+  function output and corrected the expected values/percentages).
+  Pre-done review (rule 3, fresh subagent): independently re-traced the full C++ `evaluate`
+  against the Rust branch-for-branch (re-arm-before-alert-points ordering, the pruning loop's
+  empty-key-never-touches-seen behavior, the descending-points invariant across every construction
+  path), independently re-verified the rounding-cast equivalence (`round() as i32` vs.
+  `static_cast<int>(std::round(...))`, noting Rust's saturating-instead-of-UB cast is a strictly
+  safer non-issue for real 0-100 inputs), and independently hand-traced all four of the
+  arithmetic-heaviest tests looking specifically for a *third* miscalculation after the two this
+  session already caught — found none. Confirmed via grep that no C++ test exercises this logic,
+  and no `unwrap`/`expect`/`unsafe` anywhere in the file. Ran `just check` independently (clean,
+  no flake hit that run). Verdict PASS, no fixes needed.
+  `just check`: clean (`noctalia-system` now has 75 tests, up from 58).
+Half-finished: nothing.
+Next step: task 5.4.2 (threshold/label resolution + real notification firing) stays **blocked**
+  on Phase 6.2 (UPower) and on `NotificationManager` getting its own scheduled task — do not start
+  it. Next unblocked work: task 5.5 (app identity + desktop entries — `app_identity.*` and
+  desktop-entry code in `src/system` -> `system::apps`; port `tests/app_identity_test.cpp`,
+  `desktop_entry_launch_test.cpp`, `icon_resolver_test.cpp`), the next Phase 5 task in plan order
+  — check its size/dependency graph first, same audit this session did for 5.3/5.4, before
+  assuming it's a clean single-session port. 5.6's backlog (deferred `SystemMonitorService`
+  orchestration incl. GPU vendor readers, its own not-yet-audited `src/system` files) remains open
+  and unblocking — pick whenever convenient.
+
 

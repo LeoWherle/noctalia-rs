@@ -739,8 +739,21 @@ by design).
     (belongs with calloop wiring per the task-1.2 `FileWatchPollSource` precedent). **Blocked**:
     cannot be completed until Phase 9 (compositors) + Phase 10 (Wayland core) + Phase 6 (D-Bus)
     land — do not start until at least Wayland output enumeration exists.
-- [ ] 5.4 Battery warning logic — src: `battery_warning_monitor.*` → `system::battery`.
-  Done: state-machine test ported (thresholds, hysteresis).
+- [ ] 5.4 Battery warning logic — src: `battery_warning_monitor.*` → `system::battery`. Split
+  before starting (same protocol as 1.6/5.3): the full C++ needs `UPowerService`/
+  `upowerDeviceMatchesSelector` (Phase 6.2, not yet ported) for threshold/device-key resolution,
+  and `NotificationManager` for firing the actual notification — the latter has no migration task
+  at all yet (see the note under task 6.11: "no dedicated task for that yet ... revisit when
+  scheduling"). Split into:
+  - [x] 5.4.1 Escalation state machine — `alertPointsForDevice`, `currentLevelFor`,
+    `BatteryWarningMonitor::evaluate`'s per-device fired-level bookkeeping, dependency-injected
+    away from `UPowerService`/`NotificationManager` (caller supplies each device's already-
+    resolved key/is_system/threshold, and a `fire(device, level)` callback). Done: state-machine
+    test ported (thresholds, hysteresis) — the task's original bar.
+  - [ ] 5.4.2 Threshold/label resolution + real notification firing — `batteryWarningThresholdForDevice`/
+    `batteryWarningThresholdForSelector`, `deviceKey`/`deviceLabel`/`isSystemBattery`,
+    `fireLowBatteryNotification`. **Blocked** on Phase 6.2 (UPower) and on `NotificationManager`
+    getting its own scheduled task.
 - [ ] 5.5 App identity + desktop entries — src: `app_identity.*` and desktop-entry code
   in `src/system` (see `tests/desktop_entry_launch_test.cpp`) → `system::apps`,
   hand-ported to match C++ semantics exactly.
