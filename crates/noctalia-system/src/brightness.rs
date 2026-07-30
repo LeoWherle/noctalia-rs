@@ -12,8 +12,14 @@ use std::path::{Path, PathBuf};
 /// Characters `std::isspace` (the "C" locale, used by the C++'s `StringUtils::trim`) treats as
 /// whitespace: space, tab, newline, vertical tab, form feed, carriage return. `char::is_ascii_
 /// whitespace` is close but omits vertical tab, so this is spelled out explicitly rather than
-/// reused.
-const C_ISSPACE: [char; 6] = [' ', '\t', '\n', '\x0B', '\x0C', '\r'];
+/// reused. `pub(crate)` so `ddc.rs` (task 5.3.2), which needs the identical `StringUtils::trim`
+/// semantics, can reuse it instead of duplicating it a second time in the same crate.
+pub(crate) const C_ISSPACE: [char; 6] = [' ', '\t', '\n', '\x0B', '\x0C', '\r'];
+
+/// Port of `StringUtils::trim`.
+pub(crate) fn c_trim(s: &str) -> &str {
+    s.trim_matches(C_ISSPACE.as_slice())
+}
 
 fn is_c_isspace_byte(b: u8) -> bool {
     C_ISSPACE.iter().any(|&c| c as u32 == u32::from(b))

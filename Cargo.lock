@@ -899,6 +899,7 @@ name = "noctalia-system"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "noctalia-core",
 ]
 
 [[package]]

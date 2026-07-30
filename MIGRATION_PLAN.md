@@ -726,7 +726,7 @@ by design).
     `isBetterBacklightCandidate`, and a `/sys/class/backlight`-directory-listing enumerator (no
     Wayland-connector attribution — that half of `enumerateBacklights` is 5.3.3). Done:
     fixture-driven tests for value mapping and device enumeration (the task's original bar).
-  - [ ] 5.3.2 DDC/CI (`ddcutil` subprocess protocol) — `parseDdcVcpBrightness`,
+  - [x] 5.3.2 DDC/CI (`ddcutil` subprocess protocol) — `parseDdcVcpBrightness`,
     `ddcDetectArgs`/`ddcBaseArgs`, `queryDdcBrightness`, `detectDdcDisplays`. Self-contained
     (subprocess I/O via already-ported `noctalia-core::process` + string parsing), no Wayland/
     D-Bus dependency either. Done: fixture/mock tests for VCP-brightness parsing and detect-output

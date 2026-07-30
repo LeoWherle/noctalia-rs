@@ -2849,4 +2849,79 @@ Next step: task 5.3.2 (DDC/CI `ddcutil` subprocess protocol — `parseDdcVcpBrig
   `SystemMonitorService` orchestration, its own not-yet-audited `src/system` files) remains open
   and unblocking — pick whenever convenient.
 
+## 2026-07-30 (session 50)
+Attempted: task 5.3.2 — DDC/CI (`ddcutil`) subprocess protocol.
+Done: 5.3.2. New `crates/noctalia-system/src/ddc.rs`, wired into `lib.rs`; added
+  `noctalia-core = { path = "../noctalia-core" }` to `noctalia-system/Cargo.toml` (first
+  cross-crate dependency inside the workspace for this crate, needed for
+  `noctalia_core::process::run_sync_with_options`/`RunOptions`/`RunResult` and
+  `noctalia_core::log::Logger`). Promoted `brightness.rs`'s private `C_ISSPACE` const to
+  `pub(crate)` and added a `pub(crate) fn c_trim` next to it, so this module could reuse 5.3.1's
+  already-verified `StringUtils::trim` port instead of duplicating it a second time in the same
+  crate (unlike the cross-crate "minimal pull-forward" duplication pattern used elsewhere, e.g.
+  1.6.5's `generate_uuid_v4` — same-crate reuse has no such excuse).
+  Ports: `parseTrailingInteger` -> `parse_trailing_integer` (backward-then-forward digit-run scan,
+  never negative — a leading `-` isn't part of the run), `parseI2cBus` -> `parse_i2c_bus`,
+  `normalizeConnectorName` -> `normalize_connector_name`, `parseDdcVcpBrightness` ->
+  `parse_ddc_vcp_brightness` (case-insensitive "current value"/"max value" line scan, trailing-
+  integer extraction from each side using positions found in a lowercased copy — verified
+  `to_ascii_lowercase` preserves byte offsets 1:1 since ASCII case-folding never changes a byte's
+  length or continuation-byte status), `ddcDetectArgs`/`ddcBaseArgs` -> `ddc_detect_args`/
+  `ddc_base_args`, `runCommandCapture` -> `run_command_capture` + `CommandResult` (in-class
+  defaults incl. `exit_code: -1`, matching the C++ struct's `int exitCode = -1;`),
+  `queryDdcBrightness` -> `query_ddc_brightness` (the C++'s `std::string* detailOut` out-param,
+  always passed a real buffer at its one call site, becomes a plain tuple return instead of an
+  `Option<&mut String>` thread-through), `detectDdcDisplays` -> `detect_ddc_displays` +
+  `DdcCandidate` (in-class defaults `bus: -1, current_raw: -1, max_raw: 100`).
+  Deliberate restructuring, not a behavior change (module doc comment): the C++'s
+  `detectDdcDisplays` inlines a *live* per-display `queryDdcBrightness` subprocess call directly
+  inside its `flushCurrent` line-parsing lambda, so parsing and live I/O can't be exercised
+  independently. Split into a new pure `parse_ddc_detect_output` (text -> candidate stubs, no
+  subprocess, testable against fixture text — ports `flushCurrent`'s pre-query gate
+  `inDisplay && bus>=0 && !connectorName.empty()` as `is_queryable_ddc_candidate`, called at the
+  same 3 sites: on a "Display " line, on "Invalid display"/"DDC_disabled", and once more after the
+  loop) and `detect_ddc_displays` (re-attaches the live query + the C++'s post-query gate
+  `currentRaw>=0 && maxRaw>0` in the same order). Same precedent as task 1.6.4's
+  `command_exists_on_path`/`resolve_privilege_escalator_on_path` extraction (session 12).
+  No C++ test exists for any of this (confirmed, same as 5.3.1) — the task's own bar (recorded in
+  MIGRATION_PLAN.md's 5.3.2 line) is fixture/mock tests for VCP-brightness parsing and
+  detect-output parsing, which is what's here (18 tests): every pure function above, plus
+  `run_command_capture`'s stdout+stderr combining/failed-launch reporting against real (non-
+  ddcutil) subprocesses, plus `query_ddc_brightness`/`detect_ddc_displays` against a real
+  "command not found" outcome. Confirmed `ddcutil` is genuinely absent from `$PATH` in the Nix
+  devshell and isn't a devshell/build dependency anywhere in the repo (the C++ only ever shells
+  out to it as an optional runtime tool, same as `pkexec`/`run0` in 1.6.3) — so unlike 1.6.5's
+  live systemd check, there's no manual end-to-end check to log here; noted in the module doc
+  comment rather than silently skipped.
+  Pre-done review (rule 3, fresh subagent): hand-traced the full C++ `detectDdcDisplays`/
+  `flushCurrent` against the two-function split and confirmed they produce identical candidate
+  sets for the same input (incl. the cancellation-during-detection edge case, which the review
+  worked out algebraically: the C++'s own `flushCurrent`-drops-the-current-candidate-under-cancel
+  plus its final `if (cancel) return {}` reduces to "empty result unless cancel is still false at
+  the very end," which the relocated per-iteration cancel check in `detect_ddc_displays`
+  reproduces for every case checked — noted this relies on `cancel` being a monotonic one-shot
+  flag, true for every real caller). Verified `CommandResult`/`DdcCandidate`'s defaults, the
+  digit-scan edge cases, and the ASCII-lowercase byte-offset claim independently. Ran `just check`
+  independently (clean, no flake hit that run). One real, confirmed finding: all 5 of the C++'s
+  `kLog.warn`/`kLog.info` calls inside the ported functions were silently dropped, undocumented —
+  and the reviewer pointed to genuine, already-committed precedent for NOT dropping these
+  (`noctalia-core::process::systemd.rs`'s `LOG.error`, `noctalia-core::files::paths.rs`'s
+  `LOG.warn`, both faithful `kLog` ports via a `Logger`), which this module could trivially follow
+  since its new `noctalia-core` dependency already makes `Logger` available. Fixed: added
+  `const LOG: Logger = Logger::new("brightness")` (matching the C++'s shared `kLog("brightness")`
+  for the whole `brightness_service.cpp` file) and ported all 5 calls verbatim (3 `detectDdcDisplays`
+  early-return warns split back out of what had been one collapsed early-return condition, so each
+  keeps its own distinct message; the per-candidate query-failure warn, gated on `!cancelled` same
+  as the C++; the final success-count info log). Verdict PASS (with this fix applied).
+  `just check`: clean (`noctalia-system` now has 58 tests total, up from 54; `noctalia-core`'s
+  known pre-existing `expand_user_path_expands_tilde` env-var-race flake, logged since session 14,
+  did not recur this session).
+Half-finished: nothing.
+Next step: task 5.3.3 (the full `BrightnessService` orchestration) stays **blocked** until Phase
+  6/9/10 land — do not start it. Next unblocked work: Phase 5's task 5.4 (battery warning logic —
+  `battery_warning_monitor.*` -> `system::battery`; state-machine test ported, thresholds/
+  hysteresis) is the next Phase 5 task in plan order. 5.6's backlog (deferred
+  `SystemMonitorService` orchestration incl. GPU vendor readers, its own not-yet-audited
+  `src/system` files) remains open and unblocking — pick whenever convenient.
+
 
