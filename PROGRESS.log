@@ -3710,3 +3710,80 @@ Next step: task 5.6.5.3 (dlopen'd vendor GPU libraries — `NvidiaNvmlReader`/`A
   MIGRATION_PLAN.md for the per-task blocker). Also still open: the pre-existing flaky
   `noctalia-core` test (`files::paths::tests::expand_user_path_expands_tilde`,
   full-workspace-parallel-only) — still unreproduced/unfixed, out of scope again this session.
+
+
+## 2026-07-31 (session 62)
+Done: task 5.6.5.3 (dlopen'd vendor GPU libraries — `NvidiaNvmlReader`/`AmdRsmiReader`). New
+  `crates/noctalia-system/src/dl.rs` — a shared `dlopen`/`dlsym`/`dlclose` wrapper (`DlLibrary`)
+  plus a `SymbolSource` trait that separates "which symbol name resolves" (pure, cascade logic:
+  `resolve_symbol_name`) from "fetch the pointer" (real `dlsym`), so the preferred/fallback name
+  cascade is unit-testable against a fake without a real `.so` — this is the "dlsym-loading logic
+  structured to be testable" seam the task's own done-bar calls for. New
+  `crates/noctalia-system/src/gpu_nvml.rs` (`NvidiaNvmlReader`: single `libnvidia-ml.so.1` dlopen,
+  7 dlsym'd NVML symbols with preferred/fallback names, `read_gpu_temp_sensor`/
+  `read_gpu_usage_percent`/`read_gpu_vram` — all three do a full, no-short-circuit scan across every
+  device, matching the C++ exactly, unlike RSMI below) and `crates/noctalia-system/src/gpu_rsmi.rs`
+  (`AmdRsmiReader`: 6-candidate `librocm_smi64.so{,.5,.6,.7,.1.0}` dlopen cascade, ~13 dlsym'd RSMI
+  symbols, the v1-major-version disambiguation via probing `rsmi_dev_activity_metric_get`'s
+  presence to pick the v5-vs-v6 `rsmi_dev_gpu_clk_freq_get` struct layout, `ready`/
+  `read_temp_sensor`/`read_usage` — both early-return on the first device that succeeds, matching
+  the C++'s loop shape, unlike NVML's full-scan). Both readers reuse `TempSensorReading`/
+  `GpuVramReading`/`SysfsGpuUsageReading`/`has_usable_vram` from task 5.6.5.2's `gpu_sysfs.rs`
+  rather than redefining them.
+  The RSMI reader's per-device init-time probe loop (`rsmi_dev_name_get`/`rsmi_dev_power_cap_get`/
+  `rsmi_dev_temp_metric_get(max)`, results discarded) is ported faithfully even though nothing
+  reads the results afterward — matches a real oddity in the C++ itself (confirmed by direct
+  reading: `AmdRsmiReader::ensureReady` calls these three per device and discards every result).
+  Several RSMI symbols (`rsmi_dev_memory_busy_percent_get`, `rsmi_dev_power_ave_get`,
+  `rsmi_dev_memory_total_get`, `rsmi_dev_memory_usage_get`, `rsmi_dev_pci_throughput_get`,
+  `rsmi_dev_gpu_clk_freq_get`) are loaded (their absence still fails `ensure_ready`, matching the
+  C++'s all-or-nothing `loadDlsymFunction` chain) but not kept as struct fields since the C++ never
+  reads them back either beyond that one load-time validation — a deliberate simplification to
+  avoid dead Rust fields with no behavioral difference from the C++'s unused member-field storage,
+  not a shortcut on the *gating* behavior itself.
+  `Drop` on both readers' session structs calls `shutdown` before the library's own `Drop`
+  `dlclose`s it (Rust's guaranteed drop order: custom `Drop::drop` body runs before field auto-drop
+  in declaration order), matching the C++'s explicit `close()` (shutdown-then-dlclose) sequencing
+  without needing an explicit `close()` method; early-init-failure paths call `shutdown` manually
+  then rely on the local `DlLibrary` binding's own `Drop` to `dlclose` on function return.
+  No C++ test exists for these readers in isolation (`system_monitor_service_test.cpp` runs with
+  `gpuPollSeconds = 0`) — task 5.6's own done bar is fixture/seam-driven tests for the dlsym-
+  loading/version-detection logic, added here: `dl.rs`'s symbol-resolution cascade (4 tests against
+  a fake `SymbolSource`, no real library), `gpu_rsmi.rs`'s `resolve_clock_abi` version-detection
+  branch (major==1 both symbol states, direct 5/6/7, unsupported majors — 3 tests) plus its
+  library-candidate-order and source-formatting helpers, and `gpu_nvml.rs`'s best-temp-selection/
+  usage-averaging/source-formatting pure helpers (8 tests). This dev host has neither an AMD nor
+  NVIDIA GPU (`lspci | grep -i vga` shows only the Intel Meteor Lake Arc iGPU, same precedent as
+  tasks 5.6.3/5.6.5.2), so both readers' real `dlopen`+init path genuinely exercises the
+  `Unavailable` fallback live (one test per reader asserts `dlopen` fails and every read method
+  returns `None`/`false` on this host) — this *is* live coverage of the "library absent" path, just
+  not of a real vendor `.so`'s presence, matching the task's own "live behavior against a real
+  install is a manual check only" scoping.
+  `just check`: clean end to end (fmt, clippy -D warnings, full workspace test suite exit 0) after
+  one `cargo fmt` fixup mid-session (line-wrapping on a couple `load_fn` call sites).
+  Pre-done review (rule 3, fresh subagent): PASS, no findings that blocked sign-off. Verified every
+  branch (RSMI's `effectiveMajor`/clock-ABI tree, NVML's best-temp/usage-average/VRAM-sum
+  full-scan semantics vs. RSMI's early-return semantics, both readers' source-string formatting,
+  dlopen candidate lists/flags, symbol preferred/fallback pairs, the per-device init probe loop)
+  byte-for-byte against the C++, confirmed the testability seam is real (not tautological), checked
+  every `unsafe` block's `SAFETY:` comment against its actual precondition, verified `Drop` ordering
+  has no use-after-dlclose or double-shutdown risk, confirmed zero bare `.unwrap()`/`.expect()`
+  outside tests, and confirmed no scope creep into task 5.6.5.4's orchestration (no
+  `NvidiaDisplayDeviceState` branching, no `IntelGpuReader`, no `mergeGpuVram` call sites here).
+  Flagged one purely theoretical, non-blocking nit (recorded here per CLAUDE.md rule 6, not acted
+  on): `DlLibrary::open_first`'s `CString::new(*candidate).ok()?` returns `None` from the whole
+  function (not just skips that candidate) on an embedded-NUL candidate string — unreachable today
+  since every candidate is a static string literal with no embedded NUL, only a latent sharp edge
+  for a hypothetical future non-literal candidate list.
+Half-finished: nothing.
+Next step: task 5.6.5.4 (GPU orchestration — `readGpuTempData`/`readGpuUsageData`/`readGpuVramData`,
+  the vendor-priority decision tree branching on `NvidiaDisplayDeviceState`, combining 5.6.5.2's
+  sysfs/hwmon readers, 5.6.5.3's NVML/RSMI readers now done, and 5.6.3's `intel_gpu`; also
+  `mergeGpuVram`/`hasUsableVram` are already implemented in `gpu_sysfs.rs` from 5.6.5.2, and the
+  `IntelGpuReader` wrapper struct — stable-partitions discrete-before-integrated, owns the
+  per-device `UsageSampler`s). Depends on 5.6.5.2 (done)/5.6.5.3 (done)/5.6.3 (done) — fully
+  unblocked now. 5.6.5.5 (`SystemMonitorService` class itself) remains blocked on 5.6.5.4.
+  5.6.6-5.6.12 stay blocked on Phases 6/7/9/10 (see MIGRATION_PLAN.md for the per-task blocker).
+  Also still open: the pre-existing flaky `noctalia-core` test
+  (`files::paths::tests::expand_user_path_expands_tilde`, full-workspace-parallel-only) — still
+  unreproduced/unfixed, out of scope again this session.

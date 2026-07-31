@@ -856,7 +856,7 @@ by design).
       `rfkill_helper.rs`. Done: fixture-driven tests (this dev host has no AMD/NVIDIA GPU — confirm
       via `lspci | grep -i vga` before assuming otherwise — so these are fixture-only, no live
       smoke test possible here).
-    - [ ] 5.6.5.3 dlopen'd vendor GPU libraries — `NvidiaNvmlReader` (`libnvidia-ml.so.1` via
+    - [x] 5.6.5.3 dlopen'd vendor GPU libraries — `NvidiaNvmlReader` (`libnvidia-ml.so.1` via
       `dlopen`, hand-rolled NVML C ABI: init/shutdown/device-count/handle/temperature/utilization/
       memory-info function pointers) + `AmdRsmiReader` (`librocm_smi64.so{,.5,.6,.7,.1.0}` via
       `dlopen`, hand-rolled ROCm SMI C ABI, including its v5/v6 struct-layout branch based on
