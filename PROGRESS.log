@@ -3654,3 +3654,59 @@ Next step: task 5.6.5.2 (GPU sysfs/hwmon readers — AMD via `/sys/class/drm/*/d
   Also still open: the pre-existing flaky `noctalia-core` test
   (`files::paths::tests::expand_user_path_expands_tilde`, full-workspace-parallel-only) — still
   unreproduced/unfixed, out of scope again this session.
+
+
+## 2026-07-31 (session 61)
+Done: task 5.6.5.2 (GPU sysfs/hwmon readers). New `crates/noctalia-system/src/gpu_sysfs.rs` —
+  ports `findAmdGpuSysfsDevices`/`readAmdGpuSysfsUsage`/`readAmdGpuSysfsTempSensor`/
+  `readAmdGpuVram` (AMD via `/sys/class/drm/*/device`, no dlopen), `readGpuHwmonTempSensor`/
+  `scoreGpuHwmonSensor`/`isBetterHwmonSensor` (vendor-agnostic `/sys/class/hwmon` temp probe
+  covering amdgpu/nvidia/i915/xe/nouveau), and `detectNvidiaPciDisplayDeviceState`
+  (`/sys/bus/pci/devices` class/vendor/runtime-status scan). Every scan root is a parameter
+  (`drm_root`/`hwmon_root`/`pci_root`), same fixture-testability precedent as
+  `intel_gpu::find_devices`'s `drm_root` parameter; `DEFAULT_HWMON_ROOT`/`DEFAULT_PCI_ROOT` added
+  here, `intel_gpu::DEFAULT_DRM_ROOT` reused for the real DRM path. `is_drm_card_name` promoted
+  `pub(crate)` in `intel_gpu.rs` and reused (second-consumer promotion, same precedent as
+  `cpu_temp::read_small_text_file`). `mergeGpuVram`/`hasUsableVram` are nominally attributed to
+  task 5.6.5.4 in MIGRATION_PLAN.md, but `readAmdGpuVram` (this task's own scope) already calls
+  `mergeGpuVram` to aggregate multiple AMD devices' VRAM, so they're implemented here at their
+  first real use, documented as such in the module doc comment, and will be reused (not
+  duplicated) when 5.6.5.4 needs them. `read_temp_input_celsius`/`read_uint64_file` are
+  deliberately separate, non-shared local re-implementations of `cpu_temp::read_input_celsius`'s
+  shape: the C++ itself has two independent `readTempInputCelsius`s in different anonymous
+  namespaces with different reject conditions (this file's rejects `raw <= 0`; `cpu_temp_sensor`'s
+  only rejects `raw < 0`) — confirmed by direct reading of both `.cpp` files, not assumed.
+  No C++ test exists for these functions in isolation (`system_monitor_service_test.cpp`'s
+  2 assertions run with `gpuPollSeconds = 0`, exercising none of this) — task 5.6's own done bar is
+  fixture-driven tests, added here (score/tie-break tables, AMD device discovery filtering
+  including vendor-string-not-lowercased vs. NVIDIA-vendor-string-lowercased asymmetry, VRAM
+  aggregation math and single-vs-multi-device source-string formatting, the awake-gate-before-
+  found_nvidia-flag ordering in `readGpuHwmonTempSensor`, and NVIDIA PCI active/inactive-only/none
+  priority). This dev host has no AMD or NVIDIA GPU (`lspci | grep -i vga` shows only the Intel
+  Meteor Lake Arc iGPU, same as task 5.6.3's precedent), so all tests are fixture-only; no live
+  smoke test is possible here. `just check`: clean end to end (fmt, clippy -D warnings, full
+  workspace test suite exit 0) after two fixups mid-session — a `cargo fmt` pass and one clippy
+  `if_same_then_else` fix (merged four identical-body `if`/`else if` branches in
+  `scoreGpuHwmonSensor`'s name-scoring into one `||` chain, verified truth-table-equivalent by the
+  review below).
+  Pre-done review (rule 3, fresh subagent): PASS, no findings. Verified `score_gpu_hwmon_sensor`'s
+  merged branch is truth-table-equivalent to the original four-way if/else-if, `is_better_hwmon_
+  sensor`'s tie-break polarity (`None` best-temp always loses/improves), the awake-check gating the
+  entire per-file loop including `found_nvidia` (this was a real point of confusion mid-session: an
+  earlier test assumed a suspended nvidia hwmon still gets flagged, which is wrong — the C++
+  `continue`s the outer loop before ever reaching the flag-set — caught by the test failing, not by
+  review, then fixed and re-verified), the AMD-vendor-not-lowercased vs. NVIDIA-vendor-lowercased
+  asymmetry, and the `mergeGpuVram`/`hasUsableVram` "implemented at first real use" placement
+  decision. Also confirmed zero bare `.unwrap()`/`.expect()` outside `#[cfg(test)]`, zero `unsafe`,
+  and that the fixture tests genuinely exercise the tricky branches rather than only happy paths.
+Half-finished: nothing.
+Next step: task 5.6.5.3 (dlopen'd vendor GPU libraries — `NvidiaNvmlReader`/`AmdRsmiReader` via
+  hand-rolled NVML/ROCm SMI C ABIs; see MIGRATION_PLAN.md for full scope). Neither vendor `.so` is
+  present on this dev host (no AMD/NVIDIA GPU, confirmed again this session), so the dlsym-loading/
+  version-detection logic must be structured testable without the real library (a trait or
+  fn-pointer-table seam), same precedent set for this task by 5.6.5.2's fixture-only testing.
+  5.6.5.4 (GPU orchestration) and 5.6.5.5 (`SystemMonitorService` class) remain blocked on
+  5.6.5.2 (done)/5.6.5.3/5.6.3 (done). 5.6.6-5.6.12 stay blocked on Phases 6/7/9/10 (see
+  MIGRATION_PLAN.md for the per-task blocker). Also still open: the pre-existing flaky
+  `noctalia-core` test (`files::paths::tests::expand_user_path_expands_tilde`,
+  full-workspace-parallel-only) — still unreproduced/unfixed, out of scope again this session.

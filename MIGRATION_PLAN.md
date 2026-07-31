@@ -847,7 +847,7 @@ by design).
       mem/net/disk/cpu_stat pure-reader split above) → `system::threshold_profile` +
       `system::cpu_stat::read_load_avg` (pairs naturally with `cpu_stat`'s existing `/proc/stat`
       readers). Done: smoke/fixture tests for both.
-    - [ ] 5.6.5.2 GPU sysfs/hwmon readers — `findAmdGpuSysfsDevices`/`readAmdGpuSysfsUsage`/
+    - [x] 5.6.5.2 GPU sysfs/hwmon readers — `findAmdGpuSysfsDevices`/`readAmdGpuSysfsUsage`/
       `readAmdGpuSysfsTempSensor`/`readAmdGpuVram` (AMD via `/sys/class/drm/*/device`, no dlopen)
       + `readGpuHwmonTempSensor`/`scoreGpuHwmonSensor`/`isBetterHwmonSensor` (vendor-agnostic
       `/sys/class/hwmon` temp probe covering amdgpu/nvidia/i915/xe/nouveau) +

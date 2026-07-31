@@ -144,7 +144,9 @@ fn driver_name(driver: Driver) -> &'static str {
     }
 }
 
-fn is_drm_card_name(name: &str) -> bool {
+/// `pub(crate)` since `gpu_sysfs.rs` (task 5.6.5.2) is now a second real consumer — same
+/// promotion precedent as `cpu_temp::read_small_text_file`.
+pub(crate) fn is_drm_card_name(name: &str) -> bool {
     name.starts_with("card") && name.len() > 4 && name[4..].chars().all(|c| c.is_ascii_digit())
 }
 
