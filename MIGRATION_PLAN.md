@@ -812,7 +812,7 @@ by design).
     version-stable kernel UAPI) → `system::{day_night_schedule,distro_info,rfkill_helper}`. Done:
     smoke tests for each (fixture-driven where filesystem-backed: `os-release` parsing,
     solar-time evaluation cases).
-  - [ ] 5.6.3 Intel GPU stats reader — `intel_gpu.*` (497 lines) → `system::intel_gpu`. Self-
+  - [x] 5.6.3 Intel GPU stats reader — `intel_gpu.*` (497 lines) → `system::intel_gpu`. Self-
     contained (PCI/DRM sysfs + `/proc/<pid>/fdinfo` scanning via already-ported
     `core::files`/`core::process`), no forward-phase dependency; feeds 5.6.5's multi-vendor GPU
     reader. Done: fixture-driven tests for device discovery/VRAM/usage-delta sampling.

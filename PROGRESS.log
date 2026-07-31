@@ -3438,4 +3438,69 @@ Next step: task 5.6.3 (Intel GPU stats reader — `intel_gpu.*`, self-contained 
   `noctalia-core` test noted in session 55 (`files::paths::tests::expand_user_path_expands_tilde`,
   full-workspace-parallel-only) — still unreproduced/unfixed, out of scope again this session.
 
+## 2026-07-31 (session 58)
+Attempted: task 5.6.3 — Intel GPU stats reader.
+Done: 5.6.3. New `crates/noctalia-system/src/intel_gpu.rs`, wired into `lib.rs`. Straight port of
+  `intel_gpu::{findDevices,usageSource,readVram,UsageSampler::sample}` plus the anonymous-namespace
+  helpers (`isDrmCardName`/`isPidName`/`parseLeadingUint`/`findRenderNode`/`parseFdinfo`/
+  `collectFdinfoClients`/`monotonicDelta`). Also promoted `cpu_temp.rs`'s private
+  `read_small_text_file` to `pub(crate)` so intel_gpu.rs (a second real consumer) can reuse it
+  instead of a third local copy — same promotion precedent as `brightness::c_trim`/
+  `icon_resolver::unquote`.
+  The xe device-query ioctl's wire structs (`uapi/drm/xe_drm.h`, not in the `libc` crate) are
+  mirrored locally as `#[repr(C)]` structs (`DrmXeDeviceQuery`/`DrmXeMemRegion`/
+  `DrmXeQueryMemRegions`) with `size_of` assertions pinning them to 40/88/8 bytes — same
+  "small, version-stable kernel uapi, define locally" precedent as task 5.6.2's `rfkill_helper`
+  constants. The ioctl request number (`DRM_IOCTL_XE_DEVICE_QUERY`) is computed from the same
+  `_IOC`/`_IOWR` bit layout as `asm-generic/ioctl.h` (`ioc`/`iowr` const fns) rather than hardcoded,
+  so it's checkable against the kernel header instead of being an opaque magic number; the
+  pre-done review independently verified this against a real `gcc`-compiled macro expansion
+  (`0xc0286440` both ways) and the struct sizes/offsets against a C compile.
+  `read_vram`'s ioctl-response parsing is split into a pure `parse_vram_query` core (buffer in,
+  `VramReading` out) so it's fixture-testable without a real xe device; `UsageSampler::sample`'s
+  accumulation/delta/percent math is split the same way (`sample_from_clients`, parameterized on
+  an already-collected client map and clock reading, since real `/proc` scanning can't be
+  fixture-driven the way sysfs directories can) — same pure-core-extraction precedent as task
+  5.3.2's `ddc.rs` and task 5.6.2's `day_night_schedule.rs`. `find_devices`/`parse_fdinfo` are
+  parameterized on their scan root the same way as `brightness::scan_backlight_devices`.
+  No C++ test exists for this file (confirmed: no `intel_gpu_test.cpp` in `tests/`) — task 5.6's
+  own done bar is fixture-driven tests for device discovery/VRAM/usage-delta sampling: 20 tests
+  covering `find_devices` (vendor/driver filtering, render-node discovery via real symlink
+  fixtures), `parse_fdinfo` (xe cycle-based and i915 nanosecond-suffixed engine counters, wrong
+  driver/device/missing-client-id rejection), `parse_vram_query` (single VRAM region, a non-VRAM
+  region preceding a VRAM region, zero-used-size-means-gated-not-idle, no regions at all), and
+  `sample_from_clients` (baseline-then-delta on the second scan, xe ticks-based vs i915
+  wall-clock-based percent formulas, render/compute take-the-max-not-the-sum aggregation, a
+  first-seen client's pre-existing counter not counting as a delta, a regressed counter saturating
+  to zero instead of going negative). `read_vram`'s real ioctl and `UsageSampler::sample`'s real
+  `/proc` scan are smoke-tested against the real host only (this dev host's Intel Meteor Lake Arc
+  GPU is bound to `i915`, not `xe`, so the xe ioctl path itself is not exercised live — same
+  manual-check-only precedent as task 1.6.5's systemd check, task 5.3.2's `ddcutil` check, and task
+  5.6.2's `/dev/rfkill` write).
+  Pre-done review (rule 3, fresh subagent): PASS after one round. Verified every function
+  byte-for-byte against the C++, hand-verified the ioctl request number and struct layouts against
+  a real C compile (all matched), and confirmed every `unsafe` block's `SAFETY` comment holds.
+  Flagged one real gap: three risk areas the task's own done-bar names by name weren't covered by
+  the first test pass — multi-region VRAM search (a non-VRAM region preceding the VRAM one),
+  counter regression (a busy counter decreasing between scans), and render/compute
+  take-max-not-sum aggregation (every test's client only populated the render engine slot). Fixed
+  by adding `sample_from_clients_takes_the_busier_engine_not_the_sum`,
+  `sample_from_clients_treats_a_regressed_counter_as_zero_delta_not_negative`, and
+  `parse_vram_query_finds_a_vram_region_after_a_leading_non_vram_region` (17 → 20 tests). `just
+  check`: clean end to end (fmt, clippy -D warnings, full workspace test suite —
+  `noctalia-system` now at 180 tests, up from 177 pre-fix/160 pre-session, exit 0). One `just
+  check` run mid-session hit the pre-existing flaky `noctalia-core` test (session 55's
+  `files::paths::tests::expand_user_path_expands_tilde`, full-workspace-parallel-only); an
+  immediate re-run was clean — same known flake, not investigated further this session.
+Half-finished: nothing.
+Next step: task 5.6.4 (EasyEffects service — `easyeffects_service.*`, talks to EasyEffects over
+  its own `AF_UNIX` control socket, not D-Bus, plus `ipc::service` registration for the
+  `noctalia msg audio-effects` verbs; self-contained now that Phase 4.1 IPC is done). 5.6.5
+  (`SystemMonitorService` orchestration, 2151 lines — split again before starting, same protocol as
+  task 5.6 itself, depends on 5.6.1's `format_units` and this session's `intel_gpu`) remains open
+  after that. 5.6.6-5.6.12 stay blocked on Phases 6/7/9/10 (see MIGRATION_PLAN.md for the
+  per-task blocker). Also still open: the pre-existing flaky `noctalia-core` test
+  (`files::paths::tests::expand_user_path_expands_tilde`, full-workspace-parallel-only) — still
+  unreproduced/unfixed, out of scope again this session.
+
 

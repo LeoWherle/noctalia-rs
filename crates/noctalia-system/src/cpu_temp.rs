@@ -1,8 +1,10 @@
 //! Port of `src/system/cpu_temp_sensor.{h,cpp}`.
 //!
 //! `read_small_text_file` is a minimal pull-forward of `FileUtils::readSmallTextFile`
-//! (`src/util/file_utils.h`) — the one helper this module needs, not the whole header (no owning
-//! task yet); same "minimal shared piece" pattern as task 1.6.5's local `generate_uuid_v4`.
+//! (`src/util/file_utils.h`) — not the whole header (no owning task yet); same "minimal shared
+//! piece" pattern as task 1.6.5's local `generate_uuid_v4`. `pub(crate)` since `intel_gpu.rs`
+//! (task 5.6.3) is now a second real consumer — same promotion precedent as `brightness::c_trim`/
+//! `icon_resolver::unquote`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -32,7 +34,7 @@ struct Sensor {
 /// trimmed. `None` if the file can't be opened or its first line is empty even before trimming
 /// (matches the C++'s `text.empty()` check running *before* the trim loop — a whitespace-only
 /// line is `Some("")`, not `None`, since the trim runs after that check).
-fn read_small_text_file(path: &Path) -> Option<String> {
+pub(crate) fn read_small_text_file(path: &Path) -> Option<String> {
     let content = fs::read_to_string(path).ok()?;
     let mut text = content.split('\n').next().unwrap_or("").to_string();
     if text.is_empty() {

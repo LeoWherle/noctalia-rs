@@ -14,6 +14,7 @@ pub mod disk;
 pub mod distro_info;
 pub mod format_units;
 pub mod icon_resolver;
+pub mod intel_gpu;
 pub mod internal_app_metadata;
 pub mod mem;
 pub mod net;
