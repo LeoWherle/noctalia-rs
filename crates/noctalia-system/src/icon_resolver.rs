@@ -92,8 +92,10 @@ fn size_from_dir_name(dir_name: &str) -> i32 {
 }
 
 /// Port of `StringUtils::unquote` — see the module doc comment for the char-vs-byte iteration
-/// note.
-fn unquote(text: &str) -> String {
+/// note. `pub(crate)` so `distro_info.rs` (task 5.6.2), which needs the same `StringUtils::unquote`
+/// semantics for `os-release` value parsing, can reuse it instead of duplicating it a second time
+/// in the crate — same promotion precedent as `brightness::c_trim`/`C_ISSPACE`.
+pub(crate) fn unquote(text: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
     if chars.len() < 2 {
         return text.to_string();

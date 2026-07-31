@@ -3339,4 +3339,103 @@ Next step: task 5.6.2 (day_night_schedule/distro_info/rfkill_helper — see MIGR
   the pre-existing flaky `noctalia-core` test noted in session 55
   (`files::paths::tests::expand_user_path_expands_tilde`, full-workspace-parallel-only).
 
+## 2026-07-31 (session 57)
+Attempted: task 5.6.2 — day_night_schedule/distro_info/rfkill_helper.
+Note on session start: multiple concurrent Claude Code processes were found running against this
+  same working directory (confirmed via `ps`, several `claude` processes with distinct session
+  IDs, some started within the hour). Mid-session, `crates/noctalia-system/src/{format_units,
+  dependency_service}.rs` and a `MIGRATION_PLAN.md`/`lib.rs` diff for task 5.6's audit+split
+  appeared uncommitted while this session was only reading the tree — another session's
+  in-progress work, landed and committed by that other session moments later as `2a667fc6`. Also
+  found `crates/noctalia-system/src/day_night_schedule.rs` already present and untracked from
+  session start (visible in this session's very first `git status`) — a complete, high-quality,
+  already-tested implementation left over from an earlier, uncommitted, cut-off session, never
+  wired into `lib.rs`/`Cargo.toml`. Verified with the user this was safe to build on rather than
+  redo; picked up from there rather than re-implementing task 5.6.1/the `day_night_schedule.rs`
+  half of 5.6.2 from scratch. This session's own contribution: committing 5.6.1 was already done
+  by the other session before this session's turn; this session wired up and verified the
+  pre-existing `day_night_schedule.rs`, then wrote `distro_info.rs` and `rfkill_helper.rs` to
+  complete 5.6.2, and produced this commit.
+Done: 5.6.2. `crates/noctalia-system/src/{day_night_schedule,distro_info,rfkill_helper}.rs`, wired
+  into `lib.rs`; added `noctalia-config` as a `noctalia-system` dependency (needed for
+  `day_night_schedule`'s `LocationConfig` parameter).
+  `day_night_schedule.rs` (pre-existing, verified not rewritten): straight port of
+  `day_night_schedule::{normalizedClock,resolveCoordinates,hasUsableCustomTimes,isManualMode,
+  evaluate}` plus the anonymous-namespace solar-position math (`computeSolarTimes`, the NOAA
+  equation-of-time/declination/hour-angle formula). `evaluate`'s manual-mode and astronomical-mode
+  branches, and `computeSolarTimes`, are split into pure cores (`evaluate_manual`/
+  `evaluate_astronomical`/`compute_solar_times_for`) parameterized on now-minute/now-second/day-
+  of-year/gmtoff instead of reading the wall clock inline — same testability-driven pure-core-
+  extraction precedent as task 5.3.2's `ddc.rs` `detect_ddc_displays`/`parse_ddc_detect_output`
+  split; the public `evaluate`/`compute_solar_times` still read live wall-clock time exactly where
+  the C++ does. Solar-time golden test values were independently verified this session (a from-
+  scratch JS reimplementation of the same NOAA formula, run outside the repo) — reproduced
+  sunrise/sunset minutes 365/1091 (equator, day 80, UTC) and 360/1088 (NYC, day 80, UTC-5) exactly,
+  confirming no transcription error in either the port or the test's claimed-independent values.
+  `distro_info.rs`: port of `distro_info::{detect,distroLabel,kernelLabel,osAgeLabel,
+  sessionDisplayName,hostName,systemUptime}` plus the private `parseOsRelease`. `DistroDetector`
+  (a C++ class with one static method) flattened to a free function `detect()` — Rust has no
+  static-method-only-class idiom. This is `i18n::{tr,trp}`'s first real caller (task 1.8's own doc
+  comment flagged it as unexercised until now); `os_age_label`'s year/month/day pluralization and
+  `distro_label`/`kernel_label`/`host_name`'s "unknown" fallbacks all route through it now.
+  `libc` already exposes `statx`/`statx_timestamp`/`STATX_BTIME` directly on this target
+  (`target_env = "gnu"`) — no local syscall wrapper needed, just direct FFI calls with `SAFETY`
+  comments (`statx`, `uname`, `getpwuid`, `time`). Reused `crate::brightness::c_trim` and promoted
+  `icon_resolver`'s previously-private `unquote` to `pub(crate)` for `parseOsRelease`'s value
+  parsing, rather than a third local copy of `StringUtils::trim`/`unquote` — same promotion
+  precedent `c_trim`/`C_ISSPACE` already established (task 5.3.1) for exactly this "second real
+  consumer emerges" situation. Recorded divergences in the module doc comment: `fs::read_to_string`
+  fails the whole `os-release` read on any invalid UTF-8 byte anywhere in the file, vs. the C++'s
+  byte-wise parsing that tolerates it elsewhere in the file; `sessionDisplayName`'s `pw_name`/
+  `pw_gecos` go through `CStr::to_string_lossy` (UTF-8-validating) vs. the C++'s raw byte-wise
+  `std::string` construction. Both low-risk (real os-release files and passwd/GECOS fields are
+  ASCII/UTF-8 in practice).
+  `rfkill_helper.rs`: port of `rfkill_helper::{setRfkillSoftBlocked,
+  setRfkillSoftBlockedForNetInterface,isRfkillSoftBlocked,isRfkillHardBlocked}` plus the
+  anonymous-namespace sysfs enumeration (`listRfkillEntries`/`findEntries`/
+  `rfkillIndexForNetInterface`/`readSysfsUnsigned`/`readSysfsString`) and the `/dev/rfkill` write
+  protocol (`writeRfkillEvent`/`setRfkillSoftBlockedBy{Index,Type}`). `linux/rfkill.h`'s
+  `rfkill_event` struct and `RFKILL_TYPE_*`/`RFKILL_OP_*` constants aren't in the `libc` crate;
+  defined locally (verified against the real kernel header on this machine:
+  `RFKILL_TYPE_WLAN=1`/`RFKILL_TYPE_BLUETOOTH=2`/`RFKILL_OP_CHANGE=2`/`RFKILL_OP_CHANGE_ALL=3`).
+  Rather than a `#[repr(C)]` struct plus an `unsafe` transmute to serialize the write, the 8-byte
+  wire buffer is hand-built from native-endian bytes — the module has zero `unsafe` as a result.
+  The two sysfs-scanning entry points take their scan directory as a parameter (`rfkill_class_dir`/
+  `net_class_dir`) rather than hardcoding `/sys/class/rfkill`/`/sys/class/net` inline, so they're
+  fixture-testable — same non-behavioral parameterization precedent as task 5.3.1's
+  `scan_backlight_devices(backlight_dir: &Path)`; the public API still always points at the real
+  paths. Recorded divergence: the `/dev/rfkill` write uses `Write::write_all` (retries through
+  short writes/`EINTR`) instead of the C++'s single fail-fast `write()` syscall — inert in
+  practice, since the kernel's `rfkill_fop_write` rejects undersized writes outright rather than
+  partially consuming the buffer. The actual `/dev/rfkill` write path (which would toggle a real
+  radio's soft-block state) is not exercised by the automated suite — same manual-check-only
+  precedent as task 1.6.5's systemd check and 5.3.2's `ddcutil` check; no live check was run this
+  session (would have toggled this dev machine's real Bluetooth/WLAN radios).
+  Tests: no C++ test file exists for any of the three (confirmed, same as every other 5.6.x file
+  so far) — 14 tests for `day_night_schedule` (both `evaluate` branches, polar day/night, the
+  1000ms `until_boundary` floor, malformed `HH:MM`/config input), 10 for `distro_info` (os-release
+  parsing incl. comments/blank-lines/malformed-lines/missing-file, plus real-host smoke tests for
+  the syscall-backed functions), 7 for `rfkill_helper` (fixture-driven sysfs enumeration/filtering/
+  net-interface lookup, plus a real-host smoke test for the two boolean query functions).
+  Pre-done review (rule 3, fresh subagent): PASS, no findings that blocked sign-off. Independently
+  verified the `night`-boolean if/else asymmetry between `evaluate`'s manual and astronomical
+  branches is inherited from the C++ (not introduced by the port) and preserved exactly, including
+  the degenerate `sunset == sunrise` edge case's different resolution in each branch. Verified the
+  `rfkill_event` wire-format constants against the real kernel header on this machine. Confirmed
+  every `unsafe` block's `SAFETY` comment is accurate. Flagged two divergences as real-but-
+  undocumented (both already listed above as "low-risk"): `session_display_name`'s lossy UTF-8
+  conversion, and `read_sysfs_string`'s char-count (not byte-count) truncation at 31 — both fixed
+  by adding doc-comment notes rather than changing behavior. `just check`: clean end to end (fmt,
+  clippy -D warnings, full workspace test suite — `noctalia-system` now at 160 tests, up from 129,
+  exit 0).
+Half-finished: nothing.
+Next step: task 5.6.3 (Intel GPU stats reader — `intel_gpu.*`, self-contained via already-ported
+  `core::files`/`core::process`, feeds 5.6.5's multi-vendor GPU reader). 5.6.4 (easyeffects_service
+  — talks to EasyEffects over its own `AF_UNIX` control socket, not D-Bus) and 5.6.5
+  (`SystemMonitorService` orchestration, 2151 lines — split again before starting, same protocol
+  as task 5.6 itself) remain open after that. 5.6.6-5.6.12 stay blocked on Phases 6/7/9/10 (see
+  MIGRATION_PLAN.md for the per-task blocker). Also still open: the pre-existing flaky
+  `noctalia-core` test noted in session 55 (`files::paths::tests::expand_user_path_expands_tilde`,
+  full-workspace-parallel-only) — still unreproduced/unfixed, out of scope again this session.
+
 

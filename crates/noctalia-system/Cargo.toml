@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 gio = "0.22.8"
 libc = "0.2.189"
+noctalia-config = { path = "../noctalia-config" }
 noctalia-core = { path = "../noctalia-core" }
 
 [lints]

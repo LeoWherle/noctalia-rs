@@ -803,7 +803,7 @@ by design).
   - [x] 5.6.1 Trivial self-contained utilities — `format_units.*` (128 lines, zero deps beyond
     its own header) + `dependency_service.*` (48 lines, only `core::process::command_exists`) →
     `system::{format_units,dependency_service}`. Done: smoke tests for both.
-  - [ ] 5.6.2 Small self-contained system-info readers — `day_night_schedule.*` (236 lines, needs
+  - [x] 5.6.2 Small self-contained system-info readers — `day_night_schedule.*` (236 lines, needs
     `LocationConfig`, already ported in `noctalia-config::types::location`), `distro_info.*` (223
     lines, needs already-ported `i18n::{tr,trp}` plus a `statx`/passwd/uname read — check `libc`
     exposes `statx`, else a small local syscall wrapper), `rfkill_helper.*` (290 lines, raw
