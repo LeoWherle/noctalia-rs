@@ -3593,3 +3593,64 @@ Next step: task 5.6.5 (`SystemMonitorService` orchestration, 2151 lines — spli
   MIGRATION_PLAN.md for the per-task blocker). Also still open: the pre-existing flaky
   `noctalia-core` test (`files::paths::tests::expand_user_path_expands_tilde`,
   full-workspace-parallel-only) — still unreproduced/unfixed, out of scope again this session.
+
+
+## 2026-07-31 (session 60)
+Attempted: task 5.6.5 (`SystemMonitorService` orchestration) — per its own note in
+  MIGRATION_PLAN.md ("split again before starting, same protocol as this task itself"), audited
+  `system_monitor_service.{h,cpp}` (2151 combined lines) plus `sysmon_threshold_profile.h` (60
+  lines) first. Found the pure stat-reading portions (`readMemoryKb`/`readZfsEvictableArcKb`,
+  `readNetBytes`+throughput math, `readDiskStatvfs`+`physicalDiskMounts`, `/proc/stat` CPU totals,
+  CPU temp sensor probing) were already extracted to `system::{mem,net,disk,cpu_stat,cpu_temp}` in
+  an earlier session, ahead of this split (each module's doc comment says as much). Split the
+  remainder into 5 orderable tasks (5.6.5.1-5.6.5.5, written into MIGRATION_PLAN.md): trivial
+  leftovers (threshold profile + load average), GPU sysfs/hwmon readers (AMD sysfs + generic hwmon
+  temp probe + NVIDIA PCI display-state detection), dlopen'd vendor GPU libraries (NVML/ROCm SMI),
+  GPU orchestration (the vendor-priority decision tree tying 5.6.5.2/5.6.5.3/5.6.3's intel_gpu
+  together), and the `SystemMonitorService` class itself (config sanitization, history rings,
+  retain/release ref-counting, the worker-thread sampling loop, public API). Also read
+  `tests/system_monitor_service_test.cpp`: a 2-assertion smoke test (disk snapshot round-trip,
+  sample wall-clock timestamp) with GPU polling disabled in its config, so it exercises none of the
+  vendor GPU readers — confirms those need their own fixture/mock-driven tests, not a port of an
+  existing live-GPU C++ test.
+Done: 5.6.5.1 (the smallest, self-contained sub-task). New
+  `crates/noctalia-system/src/threshold_profile.rs` — straight port of `sysmon_threshold_profile.h`
+  (`Stat` enum, `ThresholdProfile` struct, `thresholdProfile` pure function), wired into `lib.rs`.
+  Its *values* were already baked into `noctalia-config`'s `SystemMonitorConfig::default()` (task
+  2.1.7), but the enum/struct/function weren't ported standalone until now — needed later by Phase
+  14's settings-window threshold sliders (`settings_registry.cpp`), which read the min/max/step
+  fields this module's earlier config-defaults-only porting didn't carry. Also added
+  `read_load_avg` (the leftover private `readLoadAvg`, `/proc/loadavg`'s 1/5/15-minute floats) to
+  the existing `system::cpu_stat` module, grouped there since it's a `/proc` stat reader like the
+  rest of that file and the earlier mem/net/disk/cpu_temp split missed it.
+  No C++ test exists for `sysmon_threshold_profile.h` (confirmed: no
+  `sysmon_threshold_profile_test.cpp` in `tests/`) — task 5.6's own done bar is smoke/fixture tests:
+  7 tests covering all 14 `Stat` variants' activity/critical defaults (including the NetRx/NetTx
+  case's differing min/max/step) plus 2 tests for `read_load_avg` (happy path parsing the first 3
+  fields and ignoring the rest of the line; missing-file and malformed-field rejection). `just
+  check`: clean end to end (fmt, clippy -D warnings, full workspace test suite exit 0) after one
+  `cargo fmt` fixup mid-session (line-wrapping on a few `assert_eq!` calls).
+  Pre-done review (rule 3, fresh subagent): PASS, no findings that blocked sign-off. Verified every
+  `Stat` variant's thresholds byte-for-byte against the C++, confirmed `read_load_avg`'s
+  file-open/parse-failure semantics match `readLoadAvg`'s `ifstream`/`operator>>`/`fail()` chain,
+  confirmed the module wiring and test coverage, and confirmed no consumer was expected to be
+  wired up this task (grepped `thresholdProfile`/`sysmon::Stat` — only `config_types.h`, already
+  covered by task 2.1.7, and Phase 14's not-yet-reached `settings_registry.cpp`). Flagged one
+  purely theoretical, non-blocking divergence (recorded here per CLAUDE.md rule 6, not acted on):
+  on a malformed field like `"0.52abc"` (numeric prefix + trailing garbage, no internal
+  whitespace), C++'s `operator>>` would parse `0.52` and leave `"abc"` unconsumed, where Rust's
+  `str::parse` on that whitespace-delimited token fails outright and returns `None` for the whole
+  read — unreachable in practice, real `/proc/loadavg` never emits such a token.
+Half-finished: nothing.
+Next step: task 5.6.5.2 (GPU sysfs/hwmon readers — AMD via `/sys/class/drm/*/device` sysfs,
+  generic `/sys/class/hwmon` temp probe covering amdgpu/nvidia/i915/xe/nouveau, and NVIDIA PCI
+  display-device-state detection via `/sys/bus/pci/devices`; see MIGRATION_PLAN.md for full scope).
+  5.6.5.3 (dlopen'd NVML/ROCm SMI readers) can proceed in parallel/after — this dev host confirmed
+  to have neither AMD nor NVIDIA GPU (`lspci | grep -i vga` shows only an Intel Meteor Lake Arc
+  iGPU), same no-live-hardware precedent as task 5.6.3's xe ioctl path, so both 5.6.5.2 and 5.6.5.3
+  will be fixture/mock-tested only. 5.6.5.4 (GPU orchestration tying 5.6.5.2/5.6.5.3/5.6.3
+  together) and 5.6.5.5 (the `SystemMonitorService` class itself) remain blocked on those two.
+  5.6.6-5.6.12 stay blocked on Phases 6/7/9/10 (see MIGRATION_PLAN.md for the per-task blocker).
+  Also still open: the pre-existing flaky `noctalia-core` test
+  (`files::paths::tests::expand_user_path_expands_tilde`, full-workspace-parallel-only) — still
+  unreproduced/unfixed, out of scope again this session.

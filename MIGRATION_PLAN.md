@@ -828,8 +828,62 @@ by design).
     dlopen'd `libnvidia-ml.so`, AMD via dlopen'd `librocm_smi64.so`, Intel via 5.6.3) forward-
     declared as nested structs in the header. By far the largest remaining file — **split again
     before starting**, same protocol as this task itself. `tests/system_monitor_service_test.cpp`
-    exists; read it first to see what's actually exercised there. Depends on 5.6.1's
-    `format_units` and 5.6.3's `intel_gpu`.
+    exists; read it first to see what's actually exercised there (a 2-assertion smoke test:
+    `retainDiskPath`/`diskStats` on a real and a bogus path, and that a completed sample carries a
+    wall-clock timestamp — GPU polling is disabled in its config, so none of the vendor readers are
+    exercised there). Depends on 5.6.1's `format_units` and 5.6.3's `intel_gpu`.
+    **Split (session 60, same protocol as 1.6/5.3/5.4/5.5/5.6): the pure stat-reading portions
+    (`readMemoryKb`/`readZfsEvictableArcKb`, `readNetBytes`+throughput math, `readDiskStatvfs`+
+    `physicalDiskMounts`, `/proc/stat` CPU totals, CPU temp sensor probing) were already extracted
+    to `system::{mem,net,disk,cpu_stat,cpu_temp}` ahead of this task, pre-dating this split (see
+    each module's doc comment: "only the pure stat-reading function is ported here, not the owning
+    `SystemMonitorService` class"). What's left splits into 5 orderable tasks:
+    - [x] 5.6.5.1 Trivial self-contained leftovers — `sysmon_threshold_profile.h` (60 lines: `Stat`
+      enum + `ThresholdProfile` struct + pure `thresholdProfile(Stat)` switch, zero deps) — its
+      *values* are already baked into `noctalia-config`'s `SystemMonitorConfig::default()` (task
+      2.1.7), but the enum/function itself isn't ported standalone yet, and Phase 14's settings
+      window (`settings_registry.cpp`) needs the min/max/step fields for threshold sliders, not
+      just the defaults — plus the leftover `readLoadAvg` (`/proc/loadavg`, missing from the
+      mem/net/disk/cpu_stat pure-reader split above) → `system::threshold_profile` +
+      `system::cpu_stat::read_load_avg` (pairs naturally with `cpu_stat`'s existing `/proc/stat`
+      readers). Done: smoke/fixture tests for both.
+    - [ ] 5.6.5.2 GPU sysfs/hwmon readers — `findAmdGpuSysfsDevices`/`readAmdGpuSysfsUsage`/
+      `readAmdGpuSysfsTempSensor`/`readAmdGpuVram` (AMD via `/sys/class/drm/*/device`, no dlopen)
+      + `readGpuHwmonTempSensor`/`scoreGpuHwmonSensor`/`isBetterHwmonSensor` (vendor-agnostic
+      `/sys/class/hwmon` temp probe covering amdgpu/nvidia/i915/xe/nouveau) +
+      `detectNvidiaPciDisplayDeviceState` (`/sys/bus/pci/devices` class/vendor/runtime-status scan)
+      → `system::gpu_sysfs`. Self-contained sysfs scanning, same precedent as `intel_gpu.rs`/
+      `rfkill_helper.rs`. Done: fixture-driven tests (this dev host has no AMD/NVIDIA GPU — confirm
+      via `lspci | grep -i vga` before assuming otherwise — so these are fixture-only, no live
+      smoke test possible here).
+    - [ ] 5.6.5.3 dlopen'd vendor GPU libraries — `NvidiaNvmlReader` (`libnvidia-ml.so.1` via
+      `dlopen`, hand-rolled NVML C ABI: init/shutdown/device-count/handle/temperature/utilization/
+      memory-info function pointers) + `AmdRsmiReader` (`librocm_smi64.so{,.5,.6,.7,.1.0}` via
+      `dlopen`, hand-rolled ROCm SMI C ABI, including its v5/v6 struct-layout branch based on
+      version-probed symbol presence) → `system::gpu_nvml` + `system::gpu_rsmi`. Neither vendor
+      library is a build-time link dependency (both are optional runtime `dlopen`s exactly as the
+      C++ does it — no Phase A/B dependency-strategy question here, there is no crate to choose
+      between). Done: the dlsym-loading/version-detection logic must be structured so it's
+      testable without the real `.so` present (e.g. a trait or fn-pointer-table seam); live
+      behavior against a real NVML/RSMI install is a manual check only (this dev host has neither
+      — same no-hardware precedent as task 5.6.3's xe ioctl path).
+    - [ ] 5.6.5.4 GPU orchestration — `readGpuTempData`/`readGpuUsageData`/`readGpuVramData` (the
+      vendor-priority decision tree branching on `NvidiaDisplayDeviceState`, combining 5.6.5.2's
+      sysfs/hwmon readers, 5.6.5.3's NVML/RSMI readers, and 5.6.3's `intel_gpu`) + `mergeGpuVram`/
+      `hasUsableVram` + the `IntelGpuReader` wrapper struct (stable-partitions discrete-before-
+      integrated, owns the per-device `UsageSampler`s). Depends on 5.6.5.2, 5.6.5.3, 5.6.3. Done:
+      fixture/mock-driven tests for the decision tree's branch selection (which reader wins per
+      `NvidiaDisplayDeviceState` value and per reader-availability combination).
+    - [ ] 5.6.5.5 `SystemMonitorService` class itself — config sanitization
+      (`clampPollSeconds`/`effectiveHistoryPollSeconds`/`sanitizeMonitorConfig`), the history ring
+      buffer (`historyWindowFromRing`), disk-path retain/release with its own per-path history,
+      cpu-core/gpu-temp/gpu-usage/gpu-vram retain/release ref-counting, the worker-thread
+      `samplingLoop` (wake-generation condvar scheduling, per-metric poll cadence), `start`/`stop`,
+      and the public API (`latest`/`history`/`netRxBytesPerSec`/`netTxBytesPerSec`/`diskStats`/
+      etc.) → `system::monitor`. Depends on 5.6.5.1-5.6.5.4 plus the already-ported
+      `mem`/`net`/`disk`/`cpu_stat`/`cpu_temp`/`format_units`. This is where
+      `tests/system_monitor_service_test.cpp`'s 2 assertions get ported, plus fixture tests for the
+      ref-counting/history-ring/config-sanitization logic the C++ test doesn't reach.
   - [ ] 5.6.6 Keyboard backlight service — `keyboard_backlight_service.*` (304 lines).
     **Blocked** on Phase 6 (D-Bus): constructed with a live `SystemBus&` and holds an
     `sdbus::IProxy` to UPower directly (header-level dependency, not optional).

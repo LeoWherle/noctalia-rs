@@ -1,7 +1,10 @@
-//! Port of `src/system/cpu_stat.{h,cpp}`.
+//! Port of `src/system/cpu_stat.{h,cpp}`, plus (task 5.6.5.1) the private
+//! `SystemMonitorService::readLoadAvg` from `system_monitor_service.cpp` — the one leftover
+//! `/proc` stat reader the earlier `mem`/`net`/`disk`/`cpu_temp` pure-reader split didn't cover,
+//! grouped here since it pairs naturally with this module's other `/proc` readers.
 
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 
 /// Idle and total jiffies accumulated by one CPU since boot.
@@ -105,6 +108,23 @@ pub fn read_core_totals(stat_path: &Path) -> Option<Vec<Totals>> {
     }
 
     if cores.is_empty() { None } else { Some(cores) }
+}
+
+/// Port of the private `readLoadAvg`: the 1/5/15-minute load averages from `/proc/loadavg`.
+/// `None` when the file is unreadable or its first three whitespace-separated fields aren't all
+/// parseable floats (matches the C++'s `file >> la[0] >> la[1] >> la[2]` plus `file.fail()`
+/// check).
+pub fn read_load_avg(loadavg_path: &Path) -> Option<[f64; 3]> {
+    let mut content = String::new();
+    fs::File::open(loadavg_path)
+        .ok()?
+        .read_to_string(&mut content)
+        .ok()?;
+    let mut fields = content.split_whitespace();
+    let one: f64 = fields.next()?.parse().ok()?;
+    let five: f64 = fields.next()?.parse().ok()?;
+    let fifteen: f64 = fields.next()?.parse().ok()?;
+    Some([one, five, fifteen])
 }
 
 #[cfg(test)]
@@ -357,5 +377,30 @@ mod tests {
         ));
         fs::create_dir_all(&dir).expect("create temp dir");
         dir
+    }
+
+    #[test]
+    fn read_load_avg_parses_the_first_three_fields() {
+        let dir = tempfile_dir();
+        let path = write_stat(&dir, "loadavg", "0.52 0.58 0.59 2/1234 56789\n");
+        assert_eq!(read_load_avg(&path), Some([0.52, 0.58, 0.59]));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_load_avg_rejects_missing_or_malformed_files() {
+        assert!(read_load_avg(Path::new("/does/not/exist")).is_none());
+
+        let dir = tempfile_dir();
+        let short = write_stat(&dir, "loadavg-short", "0.52 0.58\n");
+        assert!(
+            read_load_avg(&short).is_none(),
+            "fewer than 3 fields should fail"
+        );
+
+        let malformed = write_stat(&dir, "loadavg-malformed", "0.52 not-a-number 0.59\n");
+        assert!(read_load_avg(&malformed).is_none());
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

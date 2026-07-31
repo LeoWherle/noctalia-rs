@@ -21,3 +21,4 @@ pub mod mem;
 pub mod net;
 pub mod rfkill_helper;
 pub mod terminal_launch;
+pub mod threshold_profile;
