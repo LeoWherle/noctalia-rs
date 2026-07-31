@@ -782,12 +782,14 @@ by design).
   - [x] 5.5.3 Desktop entry launch + terminal launch — `desktop_entry_launch.*`,
     `terminal_launch.*` → `system::{desktop_entry_launch,terminal_launch}`. Done: port
     `tests/desktop_entry_launch_test.cpp`.
-  - [ ] 5.5.4 Icon resolver — `icon_resolver.*` → `system::icon_resolver` (icon resolver may
+  - [x] 5.5.4 Icon resolver — `icon_resolver.*` → `system::icon_resolver` (icon resolver may
     live here or ui — follow C++ placement, per the original task note).
-    [future-candidate: freedesktop-desktop-entry/icon lookup → B.14] Needs a new `gio-sys`
-    FFI binding (`GSettings` schema lookup + `icon-theme` key read) — check `nix/
-    rust-devshell.nix` exposes `gio-2.0` via pkg-config (currently only `glib` is listed as a
-    transitive dep) before starting. Done: port `tests/icon_resolver_test.cpp`.
+    [future-candidate: freedesktop-desktop-entry/icon lookup → B.14] Bound `GSettings` (schema
+    lookup + `icon-theme` key read) via the maintained `gio`/`glib` crates (gtk-rs), not a
+    hand-rolled `gio-sys` shim — Phase A's "use maintained binding crates where they exist".
+    `gio-2.0` pkg-config already resolved via `glib`'s existing transitive dep, confirmed with
+    `pkg-config --cflags --libs gio-2.0` in the dev shell; no `nix/rust-devshell.nix` change
+    needed. Done: port `tests/icon_resolver_test.cpp`.
 - [ ] 5.6 Remaining `src/system` services (audit dir, list them in PROGRESS.log, split
   if >2h) → `system::*`. Done: each has at least a smoke test; ported tests green.
 

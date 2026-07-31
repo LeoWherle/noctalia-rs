@@ -870,21 +870,26 @@ pub fn refresh_desktop_entries_if_sources_changed() {
         .check_sources_changed();
 }
 
+/// Shared lock for every test in this crate that mutates `XDG_DATA_HOME`/`XDG_DATA_DIRS`/`HOME`/
+/// `LANG`/`LC_MESSAGES`/`XDG_CURRENT_DESKTOP` — `cargo test` runs a module's tests concurrently
+/// within one process, so every such test holds this lock for its full risky window (same pattern
+/// as `noctalia_core::process::test_support::ENV_MUTATION_LOCK`). `icon_resolver`'s test module
+/// reuses this lock too (its `IconResolver` tests mutate `HOME`/`XDG_DATA_HOME`/`XDG_DATA_DIRS`),
+/// rather than declaring a second, uncoordinated lock over the same process-global env vars.
+#[cfg(test)]
+pub(crate) mod test_support {
+    use std::sync::Mutex;
+
+    pub(crate) static ENV_LOCK: Mutex<()> = Mutex::new(());
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    use super::test_support::ENV_LOCK;
     use super::*;
     use std::io::Write as _;
-    use std::sync::Mutex as StdMutex;
     use std::time::{Duration, Instant};
-
-    // Every test here either mutates process-global env vars (XDG_DATA_HOME, XDG_DATA_DIRS,
-    // HOME, LANG, LC_MESSAGES, XDG_CURRENT_DESKTOP) or depends on their value not changing out
-    // from under it mid-test; `cargo test` runs this module's tests concurrently within one
-    // process, so every such test holds this lock for its full risky window (same pattern as
-    // `noctalia_core::process::test_support::ENV_MUTATION_LOCK`, scoped locally since no other
-    // module in this crate touches these particular env vars).
-    static ENV_LOCK: StdMutex<()> = StdMutex::new(());
 
     fn make_temp_dir(label: &str) -> PathBuf {
         static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);

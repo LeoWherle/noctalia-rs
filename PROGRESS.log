@@ -3215,4 +3215,75 @@ Next step: task 5.5.4 (icon resolver — needs a new `gio-sys` FFI binding for `
   services not yet audited/split) remains open and unblocking. 5.4.2 stays blocked (Phase 6.2 +
   `NotificationManager` scheduling).
 
+## 2026-07-31 (session 55)
+Attempted: task 5.5.4 — icon resolver.
+Done: 5.5.4. New `crates/noctalia-system/src/icon_resolver.rs`, wired into `lib.rs`.
+  Blocker check first: `gio-2.0` pkg-config already resolves cleanly in the dev shell
+  (`pkg-config --cflags --libs gio-2.0` succeeds, transitively via `glib`'s own dep in
+  `nix/rust-devshell.nix`) — no devshell change needed. Dependency choice: added the maintained
+  `gio` crate (gtk-rs) rather than hand-rolling a `gio-sys` FFI shim as the task text originally
+  suggested — this is still Phase A (`gio-sys`/`glib-sys` underneath are thin generated bindings
+  over the real `libgio`/`libglib`, not a reimplementation), and matches the dependency
+  strategy's own "use maintained binding crates where they exist (`pango`, `cairo-rs`, …)"
+  guidance for exactly this situation. `cargo tree -i openssl-sys`: nothing depends on it.
+  Port of `icon_resolver.{cpp,h}`: `IconSearchDir`, `IconResolver` (cache/missing-cache/
+  search-dirs/pixmap-dirs/generation, `resolve`/`invalidate_missing_cache`/`find_icon`), the
+  process-wide `IconThemeState`/generation counter (`check_theme_changed`/`theme_generation`),
+  `index.theme` INI parsing with theme-inheritance walking (`parse_index_theme`,
+  `build_theme_search_paths`, `build_theme_plan`), XDG dir resolution (`xdg_data_dirs`/
+  `icon_base_dirs`/`pixmap_dirs`), and GTK theme-name discovery (GSettings → GTK3 ini → GTK4
+  ini, `read_gtk_theme_candidates`).
+  Local ports of two not-yet-migrated `StringUtils` functions, scoped to this module only (same
+  precedent as task 1.6.5's local `generate_uuid_v4`): `unquote` (reusing already-ported
+  `brightness::c_trim` for the trim half — verified byte-identical to `StringUtils::trim`) and
+  `parse_leading_stoi`, a minimal `std::stoi`-grammar port (leading whitespace/sign + digit run,
+  `None` on no-digits or out-of-`i32`-range, matching the C++'s `catch (...) {}` no-op) for
+  `parseIndexTheme`'s two `Size`/`MaxSize` parse sites.
+  Recorded divergences (module doc comment): `signatureFor`'s per-path mtime marker uses
+  nanoseconds-since-`UNIX_EPOCH` instead of the C++'s raw, platform-defined `file_clock` tick
+  count — numerically different, but the property the signature actually needs (changes iff the
+  mtime changes) holds identically. `resolve()` returns an owned `String` instead of the C++'s
+  `const std::string&` into an internal cache/sentinel — ownership-only, no caller-observable
+  behavior change. `icon_settings()`'s `GSettings` cache is `thread_local!` rather than a single
+  process-wide `static`, because `gio::Settings` doesn't implement `Send`/`Sync` (gtk-rs only
+  marks GObject wrappers thread-safe per their GIR metadata, and `GSettings` isn't) — one schema
+  lookup per thread instead of once per process, same schema/key/backend either way.
+  `desktop_entry.rs`'s previously module-local, private test `ENV_LOCK` (guarding
+  `HOME`/`XDG_DATA_HOME`/`XDG_DATA_DIRS`/etc.) was promoted to a shared `pub(crate)
+  test_support::ENV_LOCK`, reused by `icon_resolver`'s test module (its `IconResolver` test also
+  mutates `HOME`/`XDG_DATA_HOME`/`XDG_DATA_DIRS`) — same pattern as session 54's
+  `terminal_launch`/`desktop_entry_launch` lock-sharing.
+  Tests: ported `tests/icon_resolver_test.cpp`'s `main` as one `#[test]` (matching the C++ test's
+  single-function, cumulative-assertions-on-one-resolver shape) plus unit tests for
+  `size_from_dir_name`, `unquote`, `parse_leading_stoi`, `split_list`, and `parse_index_theme`
+  (sort order, missing-file fallback).
+  Pre-done review (rule 3, fresh subagent): found one real bug, fixed before landing —
+  `parse_index_theme`'s dir-entry lookup used `HashMap::remove` while building the sorted-entries
+  vector, which correctly returns the C++'s fully-populated entry for the *first* occurrence of a
+  repeated `Directories=` name but a zeroed default for every occurrence after it (the C++'s
+  `dirMap[a]` is a non-consuming lookup, so every occurrence sees the same entry). Fixed: `.get()`
+  + `.cloned()` instead of `.remove()`. Added a regression test
+  (`parse_index_theme_keeps_metadata_when_a_directory_name_repeats`) for the exact case. Every
+  other check passed: all 7 C++ test assertions matched, `index.theme` sort order verified against
+  the C++ comparator, the `HOME`-emptiness-check inconsistency across `xdgDataDirs`/`iconBaseDirs`
+  vs `readGtkThemeCandidates` confirmed preserved (not accidentally "fixed" into consistency),
+  `find_icon`'s size-aware downscale/upscale selection logic matched, global theme-state semantics
+  (first-call vs subsequent-call generation bump behavior) matched with no cross-test pollution
+  risk found (`cargo test -p noctalia-system --lib` run 5x, all green), `unsafe` blocks all carry
+  `SAFETY:` comments, and the `gio` dependency choice confirmed consistent with Phase A. (The
+  review also surfaced an unrelated, pre-existing flaky test in `noctalia-core`
+  (`files::paths::tests::expand_user_path_expands_tilde`) that only reproduces under full-workspace
+  parallel `cargo test`, not per-crate — out of scope for this task, noted here for whoever picks
+  it up next.)
+  `just check`: clean end to end (fmt, clippy -D warnings, full workspace test suite —
+  `noctalia-system` now at 116 tests, up from 108, exit 0).
+Half-finished: nothing.
+Next step: task 5.6 (audit remaining `src/system` services not yet covered by 5.1-5.5, list them
+  in PROGRESS.log, split into sub-tasks if the total exceeds ~2h — same protocol as prior splits).
+  5.4.2 stays blocked (Phase 6.2 + `NotificationManager` scheduling). Worth a look before/alongside
+  5.6: this session's review surfaced a pre-existing, unrelated flaky test in `noctalia-core` —
+  `files::paths::tests::expand_user_path_expands_tilde` — that only reproduces under full-workspace
+  parallel `cargo test` (passes reliably per-crate); root-cause it if reachable, since intermittent
+  failures erode trust in `just check`.
+
 

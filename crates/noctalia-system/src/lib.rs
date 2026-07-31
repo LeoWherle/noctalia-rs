@@ -9,6 +9,7 @@ pub mod ddc;
 pub mod desktop_entry;
 pub mod desktop_entry_launch;
 pub mod disk;
+pub mod icon_resolver;
 pub mod internal_app_metadata;
 pub mod mem;
 pub mod net;
