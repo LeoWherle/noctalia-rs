@@ -790,8 +790,67 @@ by design).
     `gio-2.0` pkg-config already resolved via `glib`'s existing transitive dep, confirmed with
     `pkg-config --cflags --libs gio-2.0` in the dev shell; no `nix/rust-devshell.nix` change
     needed. Done: port `tests/icon_resolver_test.cpp`.
-- [ ] 5.6 Remaining `src/system` services (audit dir, list them in PROGRESS.log, split
-  if >2h) → `system::*`. Done: each has at least a smoke test; ported tests green.
+- [ ] 5.6 Remaining `src/system` services → `system::*`. Done: each has at least a smoke test;
+  ported tests green.
+  **Split (session 56, same protocol as 1.6/5.3/5.4/5.5): audit of the 21 files in `src/system`
+  not covered by 5.1-5.5 (~8500 combined C++ lines; full per-file line counts and dependency
+  audit in PROGRESS.log). Four poll-source headers (`icon_theme_poll_source.h`,
+  `location_poll_source.h`, `lock_keys_poll_source.h`, `weather_poll_source.h`, ~115 lines total)
+  are pure `PollSource` glue with no independent logic — deferred to calloop wiring alongside
+  their owning service, same precedent as `brightness_poll_source.h`/`desktop_entry_poll_source.h`
+  (tasks 5.3/5.5), not separate tasks. The rest split into 5 orderable, unblocked tasks plus 6
+  tasks blocked on not-yet-started phases:
+  - [x] 5.6.1 Trivial self-contained utilities — `format_units.*` (128 lines, zero deps beyond
+    its own header) + `dependency_service.*` (48 lines, only `core::process::command_exists`) →
+    `system::{format_units,dependency_service}`. Done: smoke tests for both.
+  - [ ] 5.6.2 Small self-contained system-info readers — `day_night_schedule.*` (236 lines, needs
+    `LocationConfig`, already ported in `noctalia-config::types::location`), `distro_info.*` (223
+    lines, needs already-ported `i18n::{tr,trp}` plus a `statx`/passwd/uname read — check `libc`
+    exposes `statx`, else a small local syscall wrapper), `rfkill_helper.*` (290 lines, raw
+    `/dev/rfkill` write protocol — `linux/rfkill.h`'s `rfkill_event` struct/`RFKILL_TYPE_*`/
+    `RFKILL_OP_*` constants aren't in the `libc` crate; define them locally, they're a small,
+    version-stable kernel UAPI) → `system::{day_night_schedule,distro_info,rfkill_helper}`. Done:
+    smoke tests for each (fixture-driven where filesystem-backed: `os-release` parsing,
+    solar-time evaluation cases).
+  - [ ] 5.6.3 Intel GPU stats reader — `intel_gpu.*` (497 lines) → `system::intel_gpu`. Self-
+    contained (PCI/DRM sysfs + `/proc/<pid>/fdinfo` scanning via already-ported
+    `core::files`/`core::process`), no forward-phase dependency; feeds 5.6.5's multi-vendor GPU
+    reader. Done: fixture-driven tests for device discovery/VRAM/usage-delta sampling.
+  - [ ] 5.6.4 EasyEffects service — `easyeffects_service.*` (580 lines) → `system::easyeffects`.
+    Talks to EasyEffects over its own Unix-domain control socket (`AF_UNIX`, not D-Bus) plus
+    `ipc::service` registration (Phase 4.1, done) for the `noctalia msg audio-effects` verbs.
+    Self-contained now that IPC is ported. Done: port reachable protocol-parsing/profile-list
+    logic as fixture tests; live-socket round-trip is a manual check if `easyeffects` is
+    installed on the dev host (same precedent as task 1.6.5's systemd check).
+  - [ ] 5.6.5 `SystemMonitorService` orchestration — `system_monitor_service.*` (2151 lines) +
+    `sysmon_threshold_profile.h` (60 lines) → `system::monitor`. The worker-thread sampling loop,
+    history rings, retain/release ref-counting, and multi-vendor GPU readers (NVIDIA via
+    dlopen'd `libnvidia-ml.so`, AMD via dlopen'd `librocm_smi64.so`, Intel via 5.6.3) forward-
+    declared as nested structs in the header. By far the largest remaining file — **split again
+    before starting**, same protocol as this task itself. `tests/system_monitor_service_test.cpp`
+    exists; read it first to see what's actually exercised there. Depends on 5.6.1's
+    `format_units` and 5.6.3's `intel_gpu`.
+  - [ ] 5.6.6 Keyboard backlight service — `keyboard_backlight_service.*` (304 lines).
+    **Blocked** on Phase 6 (D-Bus): constructed with a live `SystemBus&` and holds an
+    `sdbus::IProxy` to UPower directly (header-level dependency, not optional).
+  - [ ] 5.6.7 Hardware info — `hardware_info.*` (396 lines). **Blocked** on Phase 9
+    (compositors): `compositorLabel()` calls `compositors::detect()`/`compositors::name()`
+    directly, load-bearing not optional. (Also pulls in already-ported `disk_mounts`/
+    `format_units`, not a blocker on its own.)
+  - [ ] 5.6.8 Gamma service (night light / color temperature) — `gamma_service.*` (749 lines).
+    **Blocked** on Phase 10 (Wayland core): needs `WaylandConnection` and the
+    `wlr-gamma-control-unstable-v1` protocol.
+  - [ ] 5.6.9 Lock keys service — `lock_keys_service.*` (220 lines). **Blocked** on Phase 10
+    (Wayland core): needs `WaylandConnection`/`WaylandSeat` for keyboard-LED state.
+  - [ ] 5.6.10 Screen time service — `screen_time_service.*` (968 lines). **Blocked** on Phase 10
+    (Wayland core): needs `WaylandConnection`/`WaylandToplevels` for active-app tracking (also
+    uses already-ported `app_identity`/`desktop_entry`/`internal_app_metadata`, not a blocker).
+  - [ ] 5.6.11 Location + weather services — `location_service.*` (430 lines) +
+    `weather_service.*` (1029 lines). **Blocked** on Phase 7 (networking): both need
+    `net::HttpClient`.
+  - [ ] 5.6.12 Telemetry service — `telemetry_service.*` (148 lines). **Blocked** on Phase 7
+    (networking, `net::HttpClient`) **and** Phase 10 (Wayland core, reads `wayland.outputs()`
+    for the telemetry payload). Also pulls in 5.6.2's `distro_info`/5.6.7's `hardware_info`.
 
 ### Phase 6 — D-Bus (`crates/noctalia-dbus`, zbus)
 - [ ] 6.1 Bus plumbing — src: `session_bus.*`, `system_bus.*`, `*_poll_source.h` →

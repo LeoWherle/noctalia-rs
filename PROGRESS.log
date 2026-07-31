@@ -3286,4 +3286,57 @@ Next step: task 5.6 (audit remaining `src/system` services not yet covered by 5.
   parallel `cargo test` (passes reliably per-crate); root-cause it if reachable, since intermittent
   failures erode trust in `just check`.
 
+## 2026-07-31 (session 56)
+Attempted: task 5.6 — audit remaining `src/system` services, split, start first sub-task.
+Done: split + 5.6.1. Audited all 21 `src/system` files not covered by tasks 5.1-5.5 (~8500
+  combined C++ lines): read every header, grepped every `#include`, and for the ambiguous cases
+  read enough of the `.cpp` to confirm whether a dependency was load-bearing or incidental
+  (`hardware_info.cpp`'s `compositorLabel()` calls `compositors::detect()` directly;
+  `keyboard_backlight_service.h` is constructed with a live `SystemBus&` and holds an
+  `sdbus::IProxy` to UPower; `telemetry_service.cpp` reads `wayland.outputs()` for its payload).
+  Wrote the full split into `MIGRATION_PLAN.md` under 5.6 (same protocol as 1.6/5.3/5.4/5.5):
+  4 poll-source headers (`icon_theme_poll_source.h`/`location_poll_source.h`/
+  `lock_keys_poll_source.h`/`weather_poll_source.h`, ~115 lines) deferred to calloop wiring, same
+  precedent as `brightness_poll_source.h`/`desktop_entry_poll_source.h` — not separate tasks.
+  5 orderable, unblocked tasks: 5.6.1 (this session), 5.6.2 (day_night_schedule/distro_info/
+  rfkill_helper — small self-contained readers, noted `rfkill_helper` needs `linux/rfkill.h`'s
+  `rfkill_event`/`RFKILL_TYPE_*`/`RFKILL_OP_*` defined locally since `libc` doesn't have them, and
+  `distro_info` needs to confirm `libc` exposes `statx`), 5.6.3 (intel_gpu, feeds 5.6.5), 5.6.4
+  (easyeffects_service — talks to EasyEffects over its own `AF_UNIX` control socket, not D-Bus;
+  self-contained now that Phase 4.1 IPC is done), 5.6.5 (`SystemMonitorService` orchestration,
+  2151 lines — flagged to split again before starting, same protocol as this task itself; depends
+  on 5.6.1/5.6.3). 6 tasks blocked on not-yet-started phases: 5.6.6 keyboard_backlight_service
+  (Phase 6, D-Bus), 5.6.7 hardware_info (Phase 9, compositors), 5.6.8 gamma_service/5.6.9
+  lock_keys_service/5.6.10 screen_time_service (Phase 10, Wayland core), 5.6.11 location_service +
+  weather_service (Phase 7, networking), 5.6.12 telemetry_service (Phase 7 + Phase 10, both).
+  5.6.1 (trivial self-contained utilities): new `crates/noctalia-system/src/{format_units,
+  dependency_service}.rs`, wired into `lib.rs`. `format_units.rs`: straight port of
+  `FormatUnits::*` — binary MiB/GiB formatting, decimal byte/byte-rate formatting with an
+  auto-unit cascade (GB→MB→kB→bytes) and Compact/Full label styles. C++ default arguments
+  (`unit = Auto`, `labelStyle = Full`) become explicit Rust arguments (no default-argument
+  equivalent); both enums derive `Default` for callers that want the same defaults.
+  `dependency_service.rs`: straight port of `DependencyService` (tracks `ddcutil` presence via
+  already-ported `process::command_exists`, `HashMap<String, bool>`-backed, `rescan()` clears and
+  rebuilds fully). No C++ test exists for either file (confirmed: no `format_units_test.cpp`/
+  `dependency_service_test.cpp` in `tests/`) — done bar is smoke tests: 9 for `format_units`
+  (every unit-switch threshold on both sides, all 3 `DecimalByteRateUnit` branches, both label
+  styles), 4 for `dependency_service`.
+  Pre-done review (rule 3, fresh subagent): PASS, no findings. Verified every threshold comparison
+  and format-string branch byte-for-byte against the C++ (including confirming
+  `formatDecimalBytesUsage`'s GB/TB switch is keyed off `total_bytes`, not `used_bytes`, matching
+  the C++ comment), confirmed Rust's `{:.1}`/`{:.0}` and C++'s `std::format` agree on rounding for
+  every tested value, confirmed test coverage actually exercises the risky boundaries (not just
+  happy-path calls), confirmed no scope creep. One test flagged as weak-but-harmless
+  (`has_ddcutil_matches_has` compares a one-line delegation against itself, can't catch a
+  wrong-string bug) — not fixed, since the C++ original is the same one-line inline delegation and
+  there's no real risk to guard against. `just check`: clean end to end (fmt, clippy -D warnings,
+  full workspace test suite — `noctalia-system` now at 129 tests, up from 116, exit 0).
+Half-finished: nothing.
+Next step: task 5.6.2 (day_night_schedule/distro_info/rfkill_helper — see MIGRATION_PLAN.md for
+  the per-file dependency notes: `libc` `statx` exposure to check for `distro_info`, local
+  `linux/rfkill.h` struct/constant definitions needed for `rfkill_helper`). 5.6.3-5.6.5 remain
+  open and unblocking after that; 5.6.6-5.6.12 stay blocked on Phases 6/7/9/10. Also still open:
+  the pre-existing flaky `noctalia-core` test noted in session 55
+  (`files::paths::tests::expand_user_path_expands_tilde`, full-workspace-parallel-only).
+
 
