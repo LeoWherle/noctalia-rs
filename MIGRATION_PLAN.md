@@ -867,7 +867,7 @@ by design).
       testable without the real `.so` present (e.g. a trait or fn-pointer-table seam); live
       behavior against a real NVML/RSMI install is a manual check only (this dev host has neither
       — same no-hardware precedent as task 5.6.3's xe ioctl path).
-    - [ ] 5.6.5.4 GPU orchestration — `readGpuTempData`/`readGpuUsageData`/`readGpuVramData` (the
+    - [x] 5.6.5.4 GPU orchestration — `readGpuTempData`/`readGpuUsageData`/`readGpuVramData` (the
       vendor-priority decision tree branching on `NvidiaDisplayDeviceState`, combining 5.6.5.2's
       sysfs/hwmon readers, 5.6.5.3's NVML/RSMI readers, and 5.6.3's `intel_gpu`) + `mergeGpuVram`/
       `hasUsableVram` + the `IntelGpuReader` wrapper struct (stable-partitions discrete-before-

@@ -3787,3 +3787,65 @@ Next step: task 5.6.5.4 (GPU orchestration — `readGpuTempData`/`readGpuUsageDa
   Also still open: the pre-existing flaky `noctalia-core` test
   (`files::paths::tests::expand_user_path_expands_tilde`, full-workspace-parallel-only) — still
   unreproduced/unfixed, out of scope again this session.
+
+
+## 2026-07-31 (session 63)
+Done: task 5.6.5.4 (GPU orchestration). New `crates/noctalia-system/src/gpu_orchestration.rs` —
+  ports `readGpuTempData`/`readGpuUsageData`/`readGpuVramData` (the vendor-priority decision tree
+  branching on `NvidiaDisplayDeviceState`, combining 5.6.5.2's sysfs/hwmon readers, 5.6.5.3's
+  NVML/RSMI readers, and 5.6.3's `intel_gpu`), `readIntelGpuUsageData`/`readIntelGpuVram`, and the
+  `IntelGpuReader` wrapper struct (owns `Vec<intel_gpu::Device>` + a `pci_slot`-keyed
+  `HashMap<String, UsageSampler>`; constructor stable-partitions discrete-before-integrated devices
+  via `sort_by_cached_key(|d| read_vram(d).is_none())` — `sort_by_cached_key` calls the key function
+  exactly once per element, matching `std::stable_partition`'s "exactly N predicate applications"
+  guarantee, which matters here since the predicate does a real per-device ioctl). `mergeGpuVram`/
+  `hasUsableVram` were already implemented in `gpu_sysfs.rs` (task 5.6.5.2) and are reused, not
+  duplicated, per that module's own doc comment noting this task as their first consumer.
+  The three lower-level readers (`NvidiaNvmlReader`, `AmdRsmiReader`, this module's own
+  `IntelGpuReader`) each dlopen a vendor library or scan a real DRM tree, so — unlike
+  `gpu_sysfs.rs`'s pure sysfs scans — they can't be fixture-driven for decision-tree testing.
+  Instead the decision tree is written against three new seam traits (`NvmlGpuSource`/
+  `RsmiGpuSource`/`IntelGpuSource`), implemented for the real reader types by trivial delegation, so
+  tests substitute small fakes and exercise every branch (which reader wins per
+  `NvidiaDisplayDeviceState` value and per reader-availability combination) without real GPU
+  hardware. The sysfs/hwmon calls the tree also makes (`read_amd_gpu_sysfs_temp_sensor`,
+  `read_gpu_hwmon_temp_sensor`, `read_amd_gpu_sysfs_usage`, `read_amd_gpu_vram`) are left un-mocked
+  and called directly with a `drm_root`/`hwmon_root` parameter — same fixture-testability precedent
+  as `gpu_sysfs.rs` itself (tests point them at a nonexistent directory for "unavailable" or a
+  minimal fixture tree, reusing that module's own `write_amd_card`/`write_hwmon` fixture shapes, for
+  "available").
+  Deliberately out of scope (belongs to task 5.6.5.5, not touched here): `ensureNvmlReader`/
+  `ensureAmdRsmiReader`/`ensureIntelGpuReader` lazy-init methods, the top-level
+  `readGpuTempCelsius`/`readGpuUsagePercent`/`readGpuVram` wrappers, and anything from
+  `SystemMonitorService` itself (ref-counting, history ring, config sanitization, sampling loop).
+  31 fixture/mock-driven tests added, covering every distinct branch of all three decision trees
+  across all three `NvidiaDisplayDeviceState` values (which reader wins, and — for `readGpuTempData`
+  — both halves of the `!best.has_value() || nvml->tempC > best->tempC` tie-break, plus the
+  C++'s detail-string-reflects-nvml-presence-independent-of-whether-it-won quirk in the tail branch).
+  Pre-done review (rule 3, fresh subagent): initial pass found the implementation itself
+  byte-for-byte correct against the C++ (branch order, the `None`-state fall-through-to-shared-tail
+  behavior, string literals, `IntelGpuReader` semantics, trait delegation) but flagged two real
+  test-coverage gaps against the task's own done-bar: the RSMI-usage-wins branch in
+  `readGpuUsageData` was never exercised (only its neighbors — sysfs, NVML, Intel — were), and the
+  `best = None, nvml = Some` half of `readGpuTempData`'s tie-break was untested (all existing tests
+  set up a real hwmon reading first). Both fixed by adding
+  `usage_inactive_only_prefers_rsmi_over_sysfs_and_intel`,
+  `usage_none_prefers_rsmi_over_sysfs_nvml_and_intel`, and
+  `temp_none_uses_nvml_when_no_hwmon_reading_exists_at_all`; re-ran the full suite clean (31/31).
+  `just check`: clean end to end (fmt, clippy -D warnings, full workspace test suite exit 0) after
+  one `cargo fmt` fixup mid-session.
+Half-finished: nothing.
+Next step: task 5.6.5.5 (`SystemMonitorService` class itself — config sanitization
+  (`clampPollSeconds`/`effectiveHistoryPollSeconds`/`sanitizeMonitorConfig`), the history ring
+  buffer (`historyWindowFromRing`), disk-path retain/release with its own per-path history,
+  cpu-core/gpu-temp/gpu-usage/gpu-vram retain/release ref-counting, the worker-thread
+  `samplingLoop` (wake-generation condvar scheduling, per-metric poll cadence), `start`/`stop`, and
+  the public API (`latest`/`history`/`netRxBytesPerSec`/`netTxBytesPerSec`/`diskStats`/etc.) →
+  `system::monitor`; see MIGRATION_PLAN.md for full scope. `tests/system_monitor_service_test.cpp`'s
+  2 assertions get ported there too, plus fixture tests for the ref-counting/history-ring/
+  config-sanitization logic the C++ test doesn't reach). Depends on 5.6.5.1-5.6.5.4, all now done,
+  plus the already-ported `mem`/`net`/`disk`/`cpu_stat`/`cpu_temp`/`format_units` — fully unblocked.
+  5.6.6-5.6.12 stay blocked on Phases 6/7/9/10 (see MIGRATION_PLAN.md for the per-task blocker).
+  Also still open: the pre-existing flaky `noctalia-core` test
+  (`files::paths::tests::expand_user_path_expands_tilde`, full-workspace-parallel-only) — still
+  unreproduced/unfixed, out of scope again this session.

@@ -16,6 +16,7 @@ mod dl;
 pub mod easyeffects;
 pub mod format_units;
 pub mod gpu_nvml;
+pub mod gpu_orchestration;
 pub mod gpu_rsmi;
 pub mod gpu_sysfs;
 pub mod icon_resolver;
