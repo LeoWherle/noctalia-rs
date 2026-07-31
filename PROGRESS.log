@@ -3504,3 +3504,92 @@ Next step: task 5.6.4 (EasyEffects service — `easyeffects_service.*`, talks to
   unreproduced/unfixed, out of scope again this session.
 
 
+
+## 2026-07-31 (session 59)
+Attempted: task 5.6.4 — EasyEffects service.
+Done: 5.6.4. New `crates/noctalia-system/src/easyeffects.rs`, wired into `lib.rs`; added
+  `noctalia-ipc` as a `noctalia-system` dependency (workspace-internal path dep only, confirmed no
+  new transitive `openssl-sys`/build-time-download deps via `cargo tree -i openssl-sys`). Straight
+  port of `EasyEffectsService` plus the anonymous-namespace protocol/discovery helpers
+  (`isProtocolSafePresetName`/`pushUniqueProfile`/`presetNameFromUsageEntry`/
+  `appendCommaSeparatedPresetNames`/`readEasyEffectsPresetConfig`/`appendPresetFilesFromDir`/
+  `homePath`/`appendColonSeparatedRoots`/`easyeffectsConfigRoots`/`easyeffectsDataRoots`/
+  `parseEffectsProfileKind`/`effectsProfileKindName`/`availableEffectsProfilesSuffix`/
+  `easyEffectsServerPath`/`easyeffectsRunning`/`discoverEffectsProfiles`/
+  `discoverActiveEffectsProfile`/`exchangeEasyEffectsServerCommand`/`sendEasyEffectsServerCommand`/
+  `easyEffectsLoadPresetCommand`/`easyEffectsGetLastLoadedPresetCommand`/
+  `queryEasyEffectsActivePreset`).
+  `discoverEffectsProfiles`/`discoverActiveEffectsProfile` are split into a pure `*_from_roots`
+  core (already-computed data/config roots and a `running` flag in, profile list/string out) so
+  they're fixture-testable without mutating real process env vars — same pure-core-extraction
+  precedent as task 5.6.3's `sample_from_clients`; this also sidesteps the flaky-test class already
+  on file for `noctalia-core` (session 55/58's `expand_user_path_expands_tilde`), since
+  `noctalia-system` has no access to `noctalia_core::process::test_support::ENV_MUTATION_LOCK`
+  (`pub(crate)` there) and this module's tests never call `env::set_var`/`remove_var`.
+  `exchangeEasyEffectsServerCommand`'s raw `socket()`/`connect()`/`send()`/`recv()`/`poll()` is
+  ported onto `std::os::unix::net::UnixStream` (`connect`/`write_all`/`set_read_timeout`/`read`)
+  instead of hand-rolled libc syscalls — same higher-level-std-socket-API precedent as
+  `noctalia_ipc::service`'s own connection handling: a 250ms `SO_RCVTIMEO` read timeout that resets
+  on every byte received is behaviorally equivalent to the C++'s `poll(..., 250)` loop, and
+  `write_all`'s automatic `EINTR` retry matches the C++'s explicit `errno == EINTR` retry loop. The
+  C++'s explicit `nativePath.size() >= sizeof(sockaddr_un::sun_path)` pre-check is dropped in favor
+  of `UnixStream::connect`'s own "path too long" error — both return `None`/`nullopt`, only the
+  diagnostic detail differs (verified `UnixStream::connect` errors rather than truncating).
+  `EasyEffectsService::registerIpc` captures `this` in a `[this]` lambda kept alive by the
+  `IpcService`'s registry outliving the C++ stack frame that registered it; Rust's
+  `noctalia_ipc::Handler` requires `'static`, so this is the first port in the migration needing
+  shared ownership across a callback boundary — `register_ipc` takes `self` by value, wraps it in
+  `Rc<RefCell<Self>>`, and returns that shared handle to the caller (meant to be kept and driven
+  from a future timer once app assembly exists). Every other method stays a plain `&mut self`/
+  `&self` call; only this one call site opts into the wrapper. The C++ signature's always-unused
+  `const ConfigService&` parameter (shared shape with sibling services' `registerIpc`, e.g.
+  `PipeWireService`/`ScreenshotService`, which *do* use theirs) is dropped rather than carried as
+  dead API surface, since nothing reads it here and no Rust caller exists yet to constrain the
+  signature.
+  No C++ test exists for this file (confirmed: no `easyeffects_service_test.cpp` in `tests/`) —
+  task 5.6's own done bar is fixture-driven tests for the reachable protocol-parsing/profile-list
+  logic: 22 tests covering protocol-safety/dedup/trim (`pushUniqueProfile`,
+  `presetNameFromUsageEntry`, `appendCommaSeparatedPresetNames` incl. empty-item and
+  usage-count-suffix-stripping-vs-not), INI parsing (`readEasyEffectsPresetConfig`: sections,
+  `lastLoadedOutputPreset`/`lastLoadedInputPreset` recorded as active *and* pushed into the profile
+  list, `usedPresets`/`mostUsedPresets`, `#`/`;` comments, missing file), directory scanning
+  (`appendPresetFilesFromDir`: JSON-only, missing dir), root discovery (`discoverEffectsProfiles`/
+  `discoverActiveEffectsProfile` via the `*_from_roots` cores: not-running short-circuit,
+  data-root-precedence over config-root, case-insensitive sort, config-root fallthrough on no
+  match), protocol string builders, and end-to-end `register_ipc` IPC-handler argument-parsing
+  (malformed verb/kind/empty-profile error strings, matched character-for-character against the
+  C++). The live socket round-trip (`exchange_easy_effects_server_command` against a real
+  EasyEffects server) is a manual-check-only precedent (same as task 1.6.5's systemd check, task
+  5.3.2's `ddcutil` check, task 5.6.2's `/dev/rfkill` write, and task 5.6.3's xe ioctl) — no
+  `easyeffects` process runs on this dev host, so that path and the "found a running server but a
+  requested profile isn't in its discovered list" IPC-handler branch are not exercised live this
+  session; the final `register_ipc` test tolerates either outcome for exactly that reason.
+  Pre-done review (rule 3, fresh subagent): PASS, no findings that blocked sign-off. Verified every
+  function byte-for-byte against the C++ (including the "key found before any `[section]` header
+  still applies" INI-parsing behavior, and the argument-splitting `args[split..]`-includes-the-
+  leading-space quirk in the IPC handler), confirmed `UnixStream::connect` really does error rather
+  than truncate on an over-length path, confirmed the `Rc<RefCell<Self>>` wrapper changes no
+  observable handler behavior, confirmed the C++'s `const ConfigService&` really is unused in the
+  `.cpp` body, confirmed zero bare `.unwrap()`/`.expect()` outside `#[cfg(test)]` and the single
+  `unsafe` block (`libc::getuid()`) has an accurate `SAFETY` comment, and confirmed no test mutates
+  real process env vars. Flagged two purely cosmetic, non-blocking divergences (recorded here per
+  CLAUDE.md rule 6, not acted on): `sort_by_key` is a stable sort where the C++'s
+  `std::ranges::sort` is unstable, observable only as tie-break order for two presets whose names
+  differ solely by case; and `to_ascii_lowercase()` is always-ASCII where `StringUtils::toLower`'s
+  `std::tolower` is nominally locale-dependent (the C++ sets `LC_ALL` from the environment at
+  startup), though glibc's UTF-8 locale tables leave bytes ≥0x80 unchanged for single-byte
+  `tolower` so this shouldn't be observable for realistic preset names in practice. `just check`:
+  clean end to end (fmt, clippy -D warnings, full workspace test suite exit 0) after two fixups
+  mid-session — a `cargo fmt` pass (line-wrapping) and one genuine test-authoring mistake (expected
+  `lastLoadedInputPreset`'s value in the *output* profile list instead of just the input one,
+  caught by the test itself failing, not by review). One `just check` run mid-session hit the
+  pre-existing flaky `noctalia-core` test (session 55/58's
+  `files::paths::tests::expand_user_path_expands_tilde`, full-workspace-parallel-only); an
+  immediate re-run was clean — same known flake, not investigated further this session.
+Half-finished: nothing.
+Next step: task 5.6.5 (`SystemMonitorService` orchestration, 2151 lines — split again before
+  starting, same protocol as task 5.6 itself; depends on 5.6.1's `format_units` and 5.6.3's
+  `intel_gpu`, both already done). 5.6.6-5.6.12 stay blocked on Phases 6/7/9/10 (see
+  MIGRATION_PLAN.md for the per-task blocker). Also still open: the pre-existing flaky
+  `noctalia-core` test (`files::paths::tests::expand_user_path_expands_tilde`,
+  full-workspace-parallel-only) — still unreproduced/unfixed, out of scope again this session.

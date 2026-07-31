@@ -1057,6 +1057,7 @@ dependencies = [
  "libc",
  "noctalia-config",
  "noctalia-core",
+ "noctalia-ipc",
 ]
 
 [[package]]

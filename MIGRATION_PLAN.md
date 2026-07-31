@@ -816,7 +816,7 @@ by design).
     contained (PCI/DRM sysfs + `/proc/<pid>/fdinfo` scanning via already-ported
     `core::files`/`core::process`), no forward-phase dependency; feeds 5.6.5's multi-vendor GPU
     reader. Done: fixture-driven tests for device discovery/VRAM/usage-delta sampling.
-  - [ ] 5.6.4 EasyEffects service — `easyeffects_service.*` (580 lines) → `system::easyeffects`.
+  - [x] 5.6.4 EasyEffects service — `easyeffects_service.*` (580 lines) → `system::easyeffects`.
     Talks to EasyEffects over its own Unix-domain control socket (`AF_UNIX`, not D-Bus) plus
     `ipc::service` registration (Phase 4.1, done) for the `noctalia msg audio-effects` verbs.
     Self-contained now that IPC is ported. Done: port reachable protocol-parsing/profile-list

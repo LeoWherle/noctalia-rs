@@ -12,6 +12,7 @@ pub mod desktop_entry;
 pub mod desktop_entry_launch;
 pub mod disk;
 pub mod distro_info;
+pub mod easyeffects;
 pub mod format_units;
 pub mod icon_resolver;
 pub mod intel_gpu;
